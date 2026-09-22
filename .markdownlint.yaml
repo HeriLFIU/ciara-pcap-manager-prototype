@@ -1,0 +1,8 @@
+# Disable line length enforcement
+MD013: false
+
+# Allow multiple H1 headers
+MD025: false
+
+# Allow headers to increment by more than one
+MD001: false

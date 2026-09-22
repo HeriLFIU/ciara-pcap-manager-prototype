@@ -1,0 +1,61 @@
+# This file is maintained by Copier. DO NOT EDIT IT BY HAND.
+#
+# It records the template, the exact template version, and every answer that
+# produced this project. `copier update` reads it to work out what changed.
+#
+# Editing it by hand makes Copier believe these answers produced the files that
+# are actually on disk. They did not, and the next update will merge against a
+# state that never existed. To change an answer, re-run Copier instead:
+#
+#   copier update --defaults --data key="new value"
+#
+# `_commit` is the template version this project was last generated from, and
+# `_src_path` is where the template lives.
+_commit: 5c5e337
+_src_path: https://github.com/HeriLFIU/python-ci-copier-template.git
+author_email: hlunamal@fiu.edu
+author_full_name: Heriberto Luna
+copyright_year: "2026"
+default_branch: main
+diff_cover_threshold: 50
+include_agent_docs: true
+include_archive: true
+include_benchmarks: true
+include_commitizen: true
+include_docs: true
+include_example_code: true
+include_github_actions: true
+include_issue_templates: true
+include_makefile: true
+include_profiling: true
+include_release_please: true
+license_id: None
+line_length: 88
+package_name: ciara_pcap_manager_prototype
+prek_hook_groups:
+  - security
+  - tests
+  - filesystem_git
+  - markdown
+  - shell
+  - yaml
+  - toml
+  - spelling
+  - web_files
+  - makefile
+  - github_actions
+  - config_schema
+  - javascript
+  - sql
+  - notebooks
+  - images
+  - containers
+  - iac
+project_description: A pipeline which anonymizes, labels, and evaluates raw pcap data.
+project_kind: application
+project_name: CIARA PCAP Prototype
+project_slug: ciara-pcap-prototype
+publish_to_pypi: false
+python_version: "3.12"
+repository_namespace: Heriberto Luna
+repository_url: https://github.com/HeriLFIU/ciara-pcap-prototype.git

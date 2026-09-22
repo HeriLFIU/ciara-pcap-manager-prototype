@@ -1,0 +1,24 @@
+[project]
+name = "ciara-pcap-api"
+version = "0.1.0"
+description = "FastAPI backend that turns uploaded PCAP files into flow metadata."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "ciara-pcap-prototype",
+  "fastapi>=0.141.1",
+  "python-multipart>=0.0.32",
+  "uvicorn[standard]>=0.52.4",
+]
+classifiers = ["Private :: Do Not Upload"]
+
+[project.scripts]
+ciara-pcap-api = "ciara_pcap_api.__main__:main"
+ciara-pcap-openapi = "ciara_pcap_api.openapi:main"
+
+[build-system]
+requires = ["uv_build>=0.9.0,<10"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+ciara-pcap-prototype = { workspace = true }

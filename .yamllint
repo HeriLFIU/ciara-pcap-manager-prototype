@@ -1,0 +1,34 @@
+extends: default
+
+rules:
+  # Prettier Conflict Fix
+  braces: disable
+  brackets: disable
+  colons: disable
+  commas: disable
+  empty-lines: disable
+  hyphens: disable
+  indentation: disable
+  line-length: disable
+  trailing-spaces: disable
+  comments:
+    min-spaces-from-content: 1
+
+  key-duplicates: enable
+
+  truthy:
+    level: error
+    allowed-values:
+      - "true"
+      - "false"
+    check-keys: false
+
+  empty-values:
+    forbid-in-block-mappings: true
+    forbid-in-flow-mappings: true
+
+  document-start: disable
+  document-end: disable
+
+  new-lines:
+    type: unix

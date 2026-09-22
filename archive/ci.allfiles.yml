@@ -1,0 +1,118 @@
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+    branches: ["**"]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  prek-checks:
+    name: Code Quality & Fast Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+          # version: "latest"
+
+      - name: Hydrate Environment
+        run: uv sync --locked --all-extras --dev
+
+      - name: Run prek pipeline
+        uses: j178/prek-action@v2
+
+  comprehensive-tests:
+    name: Full Tests & Coverage
+    runs-on: ubuntu-latest
+    needs: prek-checks
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Hydrate Environment
+        run: uv sync --locked --all-extras --dev
+
+      - name: Run Full Test Suite & Generate Reports
+        # Runs the full suite, testinfra, and outputs a coverage report
+        run: |
+          mkdir -p .reports
+          uv run pytest tests \
+            --cov-report=xml:.reports/coverage.xml \
+            --junitxml=.reports/test-results.xml \
+            --snapshot-warn-unused \
+            > .reports/pytest-coverage.txt
+
+      - name: Write Coverage to GitHub Native Step Summary
+        if: always()
+        run: uv run coverage report --format=markdown >> $GITHUB_STEP_SUMMARY
+
+      - name: Post Coverage Comment to Pull Request
+        uses: MishaKav/pytest-coverage-comment@v1
+        if: github.event_name == 'pull_request' && always()
+        with:
+          pytest-coverage-path: .reports/pytest-coverage.txt
+          junitxml-path: .reports/test-results.xml
+
+      - name: Upload Test Artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pytest-artifacts
+          path: .reports/
+          retention-days: 14
+
+  performance-benchmarks:
+    name: Execute Benchmarks
+    runs-on: ubuntu-latest
+    needs: prek-checks
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Hydrate Environment
+        run: uv sync --locked --all-extras --dev
+
+      - name: Execute Performance Benchmarks
+        # Runs the suite again but for benchmarks
+        run: uv run pytest tests --benchmark-enable --benchmark-only --benchmark-columns=min,mean,stddev,outliers

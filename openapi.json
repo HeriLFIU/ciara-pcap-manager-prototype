@@ -1,0 +1,751 @@
+{
+  "components": {
+    "schemas": {
+      "AnalysisJob": {
+        "description": "The public view of a capture analysis job.",
+        "properties": {
+          "created_at": {
+            "description": "When the upload was accepted.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Failure detail, present only when failed.",
+            "title": "Error"
+          },
+          "filename": {
+            "description": "Original name of the uploaded capture.",
+            "title": "Filename",
+            "type": "string"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When extraction reached a terminal state.",
+            "title": "Finished At"
+          },
+          "job_id": {
+            "description": "Unique job identifier.",
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "size_bytes": {
+            "description": "Size of the uploaded capture on disk.",
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When extraction began.",
+            "title": "Started At"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobStatus",
+            "default": "pending",
+            "description": "Current lifecycle state."
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlowSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Aggregate statistics, present once succeeded."
+          }
+        },
+        "required": [
+          "filename",
+          "size_bytes"
+        ],
+        "title": "AnalysisJob",
+        "type": "object"
+      },
+      "Body_upload_capture": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "description": "A libpcap or pcapng capture.",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_capture",
+        "type": "object"
+      },
+      "ExpirationReason": {
+        "description": "Why NFStream closed a flow.\n\nNFStream encodes this as ``expiration_id``: ``0`` for the idle timeout,\n``1`` for the active timeout and ``-1`` when an ``NFPlugin`` forced a\ncustom expiration.",
+        "enum": [
+          "idle_timeout",
+          "active_timeout",
+          "custom",
+          "unknown"
+        ],
+        "title": "ExpirationReason",
+        "type": "string"
+      },
+      "Flow": {
+        "description": "A single bidirectional flow extracted from a packet capture.",
+        "properties": {
+          "application_category_name": {
+            "description": "nDPI application category.",
+            "title": "Application Category Name",
+            "type": "string"
+          },
+          "application_confidence": {
+            "description": "nDPI confidence identifier.",
+            "title": "Application Confidence",
+            "type": "integer"
+          },
+          "application_is_guessed": {
+            "description": "True when nDPI inferred the label instead of dissecting it.",
+            "title": "Application Is Guessed",
+            "type": "boolean"
+          },
+          "application_name": {
+            "description": "nDPI application label, for example `DNS` or `TLS.Google`.",
+            "title": "Application Name",
+            "type": "string"
+          },
+          "bidirectional_bytes": {
+            "description": "Total bytes in both directions.",
+            "title": "Bidirectional Bytes",
+            "type": "integer"
+          },
+          "bidirectional_packets": {
+            "description": "Total packets in both directions.",
+            "title": "Bidirectional Packets",
+            "type": "integer"
+          },
+          "client_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "JA3/JA4-style client fingerprint, when available.",
+            "title": "Client Fingerprint"
+          },
+          "content_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cleartext HTTP content type, when observed.",
+            "title": "Content Type"
+          },
+          "dst2src_bytes": {
+            "description": "Bytes sent from destination to source.",
+            "title": "Dst2Src Bytes",
+            "type": "integer"
+          },
+          "dst2src_packets": {
+            "description": "Packets sent from destination to source.",
+            "title": "Dst2Src Packets",
+            "type": "integer"
+          },
+          "dst_ip": {
+            "description": "Destination IP address of the first packet seen.",
+            "title": "Dst Ip",
+            "type": "string"
+          },
+          "dst_port": {
+            "description": "Destination transport port, or 0 when not applicable.",
+            "title": "Dst Port",
+            "type": "integer"
+          },
+          "duration_ms": {
+            "description": "Wall-clock lifetime of the flow.",
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "expiration_reason": {
+            "$ref": "#/components/schemas/ExpirationReason",
+            "description": "Why the flow was closed by the metering engine."
+          },
+          "first_seen_ms": {
+            "description": "Unix epoch milliseconds of the first packet in either direction.",
+            "title": "First Seen Ms",
+            "type": "integer"
+          },
+          "flow_id": {
+            "description": "Per-capture index assigned by NFStream.",
+            "title": "Flow Id",
+            "type": "integer"
+          },
+          "ip_version": {
+            "description": "IP version, 4 or 6.",
+            "title": "Ip Version",
+            "type": "integer"
+          },
+          "last_seen_ms": {
+            "description": "Unix epoch milliseconds of the last packet in either direction.",
+            "title": "Last Seen Ms",
+            "type": "integer"
+          },
+          "protocol": {
+            "description": "IANA IP protocol number.",
+            "title": "Protocol",
+            "type": "integer"
+          },
+          "protocol_name": {
+            "description": "Human-readable form of `protocol`.",
+            "title": "Protocol Name",
+            "type": "string"
+          },
+          "requested_server_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "TLS SNI or DNS query name, when one was observed.",
+            "title": "Requested Server Name"
+          },
+          "server_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Server-side handshake fingerprint, when available.",
+            "title": "Server Fingerprint"
+          },
+          "src2dst_bytes": {
+            "description": "Bytes sent from source to destination.",
+            "title": "Src2Dst Bytes",
+            "type": "integer"
+          },
+          "src2dst_packets": {
+            "description": "Packets sent from source to destination.",
+            "title": "Src2Dst Packets",
+            "type": "integer"
+          },
+          "src_ip": {
+            "description": "Source IP address of the first packet seen.",
+            "title": "Src Ip",
+            "type": "string"
+          },
+          "src_port": {
+            "description": "Source transport port, or 0 when not applicable.",
+            "title": "Src Port",
+            "type": "integer"
+          },
+          "user_agent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cleartext HTTP user agent, when observed.",
+            "title": "User Agent"
+          },
+          "vlan_id": {
+            "description": "VLAN identifier, 0 when untagged.",
+            "title": "Vlan Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "flow_id",
+          "expiration_reason",
+          "src_ip",
+          "src_port",
+          "dst_ip",
+          "dst_port",
+          "protocol",
+          "protocol_name",
+          "ip_version",
+          "vlan_id",
+          "first_seen_ms",
+          "last_seen_ms",
+          "duration_ms",
+          "bidirectional_packets",
+          "bidirectional_bytes",
+          "src2dst_packets",
+          "src2dst_bytes",
+          "dst2src_packets",
+          "dst2src_bytes",
+          "application_name",
+          "application_category_name",
+          "application_is_guessed",
+          "application_confidence"
+        ],
+        "title": "Flow",
+        "type": "object"
+      },
+      "FlowPage": {
+        "description": "One page of flows, as returned by the flows endpoint.",
+        "properties": {
+          "items": {
+            "description": "The flows in this page.",
+            "items": {
+              "$ref": "#/components/schemas/Flow"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "description": "Maximum page size that was applied.",
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "description": "Index of the first item in this page.",
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total flows available for the capture.",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "offset",
+          "limit"
+        ],
+        "title": "FlowPage",
+        "type": "object"
+      },
+      "FlowSummary": {
+        "description": "Aggregate statistics describing an analysed capture.",
+        "properties": {
+          "byte_count": {
+            "description": "Total bytes across every flow.",
+            "title": "Byte Count",
+            "type": "integer"
+          },
+          "first_seen_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Earliest packet timestamp across every flow.",
+            "title": "First Seen Ms"
+          },
+          "flow_count": {
+            "description": "Number of bidirectional flows extracted.",
+            "title": "Flow Count",
+            "type": "integer"
+          },
+          "last_seen_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Latest packet timestamp across every flow.",
+            "title": "Last Seen Ms"
+          },
+          "packet_count": {
+            "description": "Total packets across every flow.",
+            "title": "Packet Count",
+            "type": "integer"
+          },
+          "top_applications": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Flow count per nDPI application, highest first.",
+            "title": "Top Applications",
+            "type": "object"
+          }
+        },
+        "required": [
+          "flow_count",
+          "packet_count",
+          "byte_count"
+        ],
+        "title": "FlowSummary",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "description": "Reports that the API is reachable.",
+        "properties": {
+          "service": {
+            "description": "Human-readable service name.",
+            "title": "Service",
+            "type": "string"
+          },
+          "status": {
+            "description": "Always `ok` when the API is serving.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "service"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "JobStatus": {
+        "description": "Lifecycle state of an analysis job.",
+        "enum": [
+          "pending",
+          "running",
+          "succeeded",
+          "failed"
+        ],
+        "title": "JobStatus",
+        "type": "string"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "summary": "Extracts bidirectional flow metadata from offline packet captures.",
+    "title": "CIARA PCAP Analysis API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/captures": {
+      "get": {
+        "description": "List every analysis job, newest first.\n\nArgs:\n    service: The analysis service.\n\nReturns:\n    All known jobs.",
+        "operationId": "list_captures",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AnalysisJob"
+                  },
+                  "title": "Response List Captures",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List analysis jobs",
+        "tags": [
+          "captures"
+        ]
+      },
+      "post": {
+        "description": "Accept a capture upload and schedule flow extraction.\n\nArgs:\n    service: The analysis service.\n    file: The uploaded capture, streamed to disk in chunks.\n\nReturns:\n    The accepted job. Poll it to learn when extraction finished.\n\nRaises:\n    HTTPException: If the upload is too large or is not a capture file.",
+        "operationId": "upload_capture",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_capture"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisJob"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload a capture for analysis",
+        "tags": [
+          "captures"
+        ]
+      }
+    },
+    "/api/v1/captures/{job_id}": {
+      "delete": {
+        "description": "Delete the capture file backing a job, keeping the job record.\n\nArgs:\n    service: The analysis service.\n    job_id: Identifier returned by the upload endpoint.\n\nRaises:\n    HTTPException: If the job does not exist.",
+        "operationId": "delete_capture",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete a stored capture file",
+        "tags": [
+          "captures"
+        ]
+      },
+      "get": {
+        "description": "Read the current state of an analysis job.\n\nArgs:\n    service: The analysis service.\n    job_id: Identifier returned by the upload endpoint.\n\nReturns:\n    The job, including its summary once extraction succeeded.\n\nRaises:\n    HTTPException: If the job does not exist.",
+        "operationId": "read_capture",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisJob"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read one analysis job",
+        "tags": [
+          "captures"
+        ]
+      }
+    },
+    "/api/v1/captures/{job_id}/flows": {
+      "get": {
+        "description": "Read one page of the flows extracted from a capture.\n\nArgs:\n    service: The analysis service.\n    job_id: Identifier returned by the upload endpoint.\n    offset: Index of the first flow to return.\n    limit: Maximum number of flows to return.\n\nReturns:\n    The requested page of flows.\n\nRaises:\n    HTTPException: If the job does not exist.",
+        "operationId": "read_capture_flows",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Index of the first flow.",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "Index of the first flow.",
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Maximum flows to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "description": "Maximum flows to return.",
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlowPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Page through extracted flows",
+        "tags": [
+          "captures"
+        ]
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "description": "Report that the API is reachable.\n\nReturns:\n    A constant healthy payload.",
+        "operationId": "read_health",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Liveness probe",
+        "tags": [
+          "health"
+        ]
+      }
+    }
+  }
+}

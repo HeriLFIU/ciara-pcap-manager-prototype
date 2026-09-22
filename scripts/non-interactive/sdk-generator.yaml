@@ -1,0 +1,10 @@
+# Configuration for openapi-python-client.
+#
+# The generated package under packages/sdk is machine output: it is excluded
+# from ruff, pyright and codespell, and it must never be hand-edited. Change
+# the FastAPI models instead and regenerate.
+---
+project_name_override: ciara-pcap-sdk
+package_name_override: ciara_pcap_sdk
+literal_enums: true
+docstrings_on_attributes: true
