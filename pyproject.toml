@@ -1,0 +1,269 @@
+[project]
+name = "ciara-pcap-prototype"
+version = "0.1.0"
+description = "A pipeline which anonimizes, labels, and evaluates raw pcap data."
+authors = [{ name = "Heriberto Luna", email = "hlunamal@fiu.edu" }]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "nfstream>=6.6.0",
+  "pydantic>=2.13.5",
+  "pydantic-settings>=2.15.0",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Private :: Do Not Upload",               # Remove if public
+]
+
+[project.urls]
+repository = "https://github.com/HeriLFIU/ciara-pcap-prototype.git"
+
+[dependency-groups]
+dev = [
+  { include-group = "test" },
+  { include-group = "lint" },
+  { include-group = "prof" },
+  "commitizen>=4.16.3",
+  "prek>=0.4.0",
+  "ciara-pcap-api",
+  "ciara-pcap-client",
+  "ciara-pcap-cli",
+  "ciara-pcap-gui",
+  "ciara-pcap-sdk",
+]
+test = [
+  "pytest>=9.0.3",
+  "pytest-asyncio>=1.4.0",
+  "pytest-benchmark>=5.2.3",
+  "pytest-cov>=7.1.0",
+  "pytest-deadfixtures>=3.1.0",
+  "pytest-env>=1.1.3",
+  "pytest-mock>=3.15.1",
+  "pytest-randomly>=4.1.0",
+  "pytest-socket>=0.7.0",
+  "pytest-sugar>=1.1.1",
+  "pytest-testinfra>=10.2.2",
+  "pytest-timeout>=2.4.0",
+  "pytest-xdist>=3.8.0",
+  "syrupy>=5.3.2",
+]
+lint = ["ruff>=0.15.13", "codespell>=2.2.6", "pyright>=1.1.410"]
+prof = ["scalene>=2.3.0"]
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+ciara-pcap-api = { workspace = true }
+ciara-pcap-client = { workspace = true }
+ciara-pcap-cli = { workspace = true }
+ciara-pcap-gui = { workspace = true }
+ciara-pcap-sdk = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.11.14,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.pyright]
+include = [
+  "src",
+  "tests",
+  "scripts",
+  "packages/api/src",
+  "packages/cli/src",
+  "packages/client/src",
+  "packages/gui/src",
+]
+exclude = ["packages/sdk", "**/__pycache__", "**/.venv"]
+typeCheckingMode = "strict"
+pythonVersion = "3.12"
+venvPath = "."
+venv = ".venv"
+
+# Uncomment this if you want to use commitizen to manage your releases
+# You will have to modify the CI workflow or create your own workflow to use commitizen
+# Commitizen was replaced with Google's "Release Please" CI Tool
+# [tool.commitizen]
+# name = "cz_conventional_commits"
+# tag_format = "$version"
+# version_scheme = "pep440"
+# version_provider = "uv"
+# update_changelog_on_bump = true
+# major_version_zero = true
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+addopts = """
+    -ra -q
+    --strict-markers
+    --strict-config
+    --tb=short
+    -n auto
+    --cov=ciara_pcap_manager_prototype
+    --cov=ciara_pcap_api
+    --cov=ciara_pcap_client
+    --cov=ciara_pcap_cli
+    --cov=ciara_pcap_gui
+    --cov-report=term-missing
+    --cov-report=xml:.reports/coverage.xml
+    --cov-report=html:.reports/htmlcov
+    --timeout=60
+    --disable-socket
+    --allow-unix-socket
+    --benchmark-columns=min,mean,stddev,outliers,rounds,iterations
+    --benchmark-group-by=group
+    --benchmark-warmup=on
+    --benchmark-disable
+"""
+
+markers = ["capture_backend: needs a working libpcap/Npcap runtime"]
+testpaths = ["tests"]
+pythonpath = [
+  ".",
+  "src",
+  "packages/api/src",
+  "packages/cli/src",
+  "packages/client/src",
+  "packages/gui/src",
+]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.pytest_env]
+TESTING_MODE = "1"
+# Qt must not try to open a display when the GUI model is under test.
+QT_QPA_PLATFORM = "offscreen"
+TERM = "xterm"
+COLUMNS = "200"
+# MOCK_CONTROLLER_IP = "127.0.0.1"
+
+[tool.codespell]
+skip = ".git,*.lock,.venv,*.xml,packages/sdk"
+
+[tool.coverage.report]
+exclude_also = [
+  "def __repr__",
+  "if TYPE_CHECKING:",
+  "@(typing\\.)?overload",
+  "raise NotImplementedError",
+  "\\.\\.\\.",
+]
+
+[tool.ruff]
+# Align this exactly with your minimum Python version
+target-version = "py312"
+line-length = 88
+# The SDK under packages/sdk is regenerated from the OpenAPI schema on every
+# contract change. Linting machine output only creates churn.
+extend-exclude = ["packages/sdk"]
+
+[tool.ruff.lint]
+# Core rules
+select = [
+  "F",    # Pyflakes: Core logic errors
+  "E",
+  "W",    # Pycodestyle: Formatting and style guidelines
+  "I",    # isort: Strict import sorting
+  "N",    # pep8-naming: Enforces consistent naming conventions
+  "D",    # pydocstyle: Enforces docstring presence and style
+  "UP",   # pyupgrade: Forces modern Python syntax (e.g., modern type hinting)
+  "ANN",  # flake8-annotations: Enforces strict type hinting on all functions
+  "S",    # flake8-bandit: Automated security scanning
+  "BLE",  # flake8-blind-except: Prevents swallowing exceptions silently
+  "FBT",  # flake8-boolean-trap: Prevents unreadable boolean arguments
+  "B",    # flake8-bugbear: Catches common Python logic bugs
+  "A",    # flake8-builtins: Prevents shadowing Python built-ins
+  "C4",   # flake8-comprehensions: Optimizes loops into list/dict comprehensions
+  "DTZ",  # flake8-datetimez: Enforces timezone-aware datetimes
+  "T10",  # flake8-debugger: Prevents committing breakpoint() or pdb
+  "EM",   # flake8-errmsg: Enforces clean, traceback-friendly error messages
+  "ISC",  # flake8-implicit-str-concat: Prevents subtle string formatting bugs
+  "G",    # flake8-logging-format: Enforces efficient logging
+  "PIE",  # flake8-pie: Miscellaneous linting rules
+  "T20",  # flake8-print: Prevents committing print() statements
+  "PT",   # flake8-pytest-style: Enforces clean pytest fixtures and assertions
+  "Q",    # flake8-quotes: Enforces consistent quote styles
+  "RET",  # flake8-return: Simplifies return statements and branching
+  "SIM",  # flake8-simplify: Refactors complex code into simpler equivalents
+  "TCH",  # flake8-type-checking: Optimizes imports for Pyright/type checking
+  "ARG",  # flake8-unused-arguments: Flags dead variables
+  "PTH",  # flake8-use-pathlib: Forces pathlib over os.path (Modern standard)
+  "ERA",  # eradicate: Prevents committing commented-out code
+  "PL",   # Pylint: Comprehensive code analysis
+  "TRY",  # tryceratops: Enforces best practices for try/except blocks
+  "PERF", # Perflint: Performance anti-patterns
+  "RUF",  # Ruff-specific rules
+]
+
+ignore = [
+  # Required for formatter conflicts. Do not remove these.
+  "ISC001",
+  "COM812",
+
+  # REQUIRED: Resolve mutually exclusive docstring rules
+  "D203", # 1 blank line required before class docstring
+  "D212", # multi line docstring summary should start at the first line
+
+  # Disable rules that are too annoying
+  "D100", # Missing docstring in public module
+  "D104", # Missing docstring in public package
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Typer derives the command line interface from the signature, so boolean
+# options must be declared as parameters with boolean defaults. There is no
+# keyword-only spelling that Typer accepts.
+"packages/cli/src/ciara_pcap_cli/app.py" = ["FBT001", "FBT002"]
+
+# This module is imported by CPython at interpreter start-up in every spawned
+# subprocess. It deliberately stays on `os.path` and bare try/except so it does
+# not pull `pathlib` and `contextlib` into the start-up cost of each one.
+"src/ciara_pcap_manager_prototype/pcap/_bootstrap/sitecustomize.py" = [
+  "PTH100",
+  "PTH113",
+  "PTH118",
+  "PTH120",
+  "PTH123",
+  "SIM105",
+]
+
+# Testing files need exceptions to function correctly
+"tests/**/*" = [
+  "S101", # Allow assert in tests
+  "T201", # Allow print in tests for debugging
+  "D101",
+  "D102",
+  "D103", # Do not require docstrings for every test function
+
+  # Pytest fixture parameters are annotated purely for the type checker. From
+  # Python 3.14 onward (PEP 649) annotations are evaluated lazily, so Ruff can
+  # prove those imports are unused at runtime and asks for them to be moved
+  # into an `if TYPE_CHECKING:` block. Doing that would force every test module
+  # to also carry `from __future__ import annotations` to stay correct on older
+  # interpreters, for no real benefit. Keep fixture imports plain.
+  "TC001", # Move application import into a type-checking block
+  "TC002", # Move third-party import into a type-checking block
+  "TC003", # Move standard library import into a type-checking block
+
+  # An assertion is meant to name the expected value literally. Hoisting every
+  # one into a constant makes a test harder to read, not safer.
+  "PLR2004", # Magic value used in comparison
+
+  # Test and fixture docstrings describe what the case is, not what it does.
+  "D401", # First line of docstring should be in imperative mood
+  "D107", # Missing docstring in __init__
+
+  # Fakes and stubs mirror the signatures they stand in for.
+  "FBT001",  # Boolean-typed positional argument
+  "FBT002",  # Boolean default positional argument
+  "PLR0913", # Too many arguments
+  "EM101",   # Exception must not use a string literal
+  "TRY003",  # Avoid long messages outside the exception class
+]
+
+[tool.ruff.format]
+quote-style = "double" # Override single quotes

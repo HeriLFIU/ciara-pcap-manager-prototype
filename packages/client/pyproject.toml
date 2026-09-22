@@ -1,0 +1,15 @@
+[project]
+name = "ciara-pcap-client"
+version = "0.1.0"
+description = "Async helpers shared by every Python client of the CIARA PCAP API."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["ciara-pcap-sdk", "httpx>=0.28.1"]
+classifiers = ["Private :: Do Not Upload"]
+
+[build-system]
+requires = ["uv_build>=0.9.0,<10"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+ciara-pcap-sdk = { workspace = true }

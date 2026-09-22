@@ -1,0 +1,18 @@
+# Normalize line endings for every text file, in the repository *and* in the
+# working tree. Git already stores LF, but a Windows checkout with
+# `core.autocrlf=true` materializes CRLF, which fails yamllint's `new-lines`
+# rule and fights the `mixed-line-ending` hook on every run. `eol=lf` overrides
+# autocrlf so all platforms see the same bytes the CI runners do.
+* text=auto eol=lf
+
+# Binary formats must never be line-ending converted.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.woff binary
+*.woff2 binary

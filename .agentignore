@@ -1,0 +1,202 @@
+# .agentignore — paths AI coding agents should not read, index, or edit.
+#
+# Syntax is the same as .gitignore. See AGENTS.md for the full operating manual.
+#
+# Most agent tools read .gitignore already; this file exists for the paths that
+# are *tracked* by git but still wrong for an agent to touch (uv.lock, syrupy
+# snapshots, archived configs), and for the noisy generated trees that would
+# otherwise dominate a search.
+#
+# Tool-specific filenames vary. To reuse this list, copy or symlink it:
+#   cp .agentignore .aiignore        # JetBrains AI Assistant
+#   cp .agentignore .cursorignore    # Cursor
+#   cp .agentignore .aiexclude       # Gemini CLI
+#   cp .agentignore .aiderignore     # Aider
+#   cp .agentignore .codeiumignore   # Codeium / Windsurf
+
+# ---------------------------------------------------------------------------- #
+#                     Machine-generated but tracked in git                     #
+# ---------------------------------------------------------------------------- #
+
+# Regenerate with `uv add` / `uv remove` / `uv lock`. Never hand-edit.
+# Tens of thousands of lines of resolver output; reading it is never the right move.
+uv.lock
+
+# Syrupy snapshots. Regenerate with `uv run pytest tests --snapshot-update`.
+tests/**/__snapshots__/
+
+# NOTE: .copier-answers.yml is deliberately NOT ignored. Agents should read it
+# to learn which template and which template version produced this project.
+# They must never *edit* it — see AGENTS.md §9.
+
+# ---------------------------------------------------------------------------- #
+#                          Reference-only / not wired up                       #
+# ---------------------------------------------------------------------------- #
+
+# Superseded configs kept for humans to consult. Editing them changes nothing,
+# and treating them as live config produces confidently wrong advice.
+archive/
+
+# ---------------------------------------------------------------------------- #
+#                            Environments & toolchains                         #
+# ---------------------------------------------------------------------------- #
+
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.pixi/
+__pypackages__/
+node_modules/
+
+# ---------------------------------------------------------------------------- #
+#                                    Caches                                    #
+# ---------------------------------------------------------------------------- #
+
+__pycache__/
+*.py[codz]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.pytype/
+.benchmarks/
+.cache/
+.hypothesis/
+.tox/
+.nox/
+cython_debug/
+
+# prek / pre-commit downloads a pinned toolchain per hook here.
+.prek/
+.pre-commit/
+
+# ---------------------------------------------------------------------------- #
+#                          Test, coverage & profiler output                    #
+# ---------------------------------------------------------------------------- #
+
+# Written by `uv run pytest` and by the CI jobs. These are large and are
+# regenerated on every run, so they are excluded by default.
+#
+# The two *small* summary files are re-included on purpose: they are the digest
+# an agent needs to act on real measurements instead of guessing, and they are
+# cheap to read. Everything else here should be queried with a targeted command
+# (grep/awk) rather than loaded whole. See docs/common_workflows/ci_feedback.md.
+#
+# The trailing `/*` matters: a plain `.reports/` would exclude the directory
+# itself, and gitignore cannot re-include anything underneath an excluded
+# directory.
+.reports/*
+!.reports/pytest-coverage.txt
+!.reports/diff-cover-report.md
+
+htmlcov/
+cover/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+*.py.cover
+nosetests.xml
+
+# Scalene profiler artifacts. Large; extract hot lines instead of reading whole.
+scalene-profile.json
+scalene-profile.html
+
+# ---------------------------------------------------------------------------- #
+#                                Build artifacts                               #
+# ---------------------------------------------------------------------------- #
+
+build/
+dist/
+sdist/
+wheels/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+var/
+share/python-wheels/
+*.egg-info/
+*.egg
+.installed.cfg
+MANIFEST
+*.so
+*.manifest
+*.spec
+
+# ---------------------------------------------------------------------------- #
+#                        Secrets & machine-local state                         #
+# ---------------------------------------------------------------------------- #
+
+# gitleaks guards the repo, but agents should never read these into context in
+# the first place — anything loaded here can leak into a prompt or a report.
+.env
+.env.*
+!.env.example
+.envrc
+*.pem
+*.key
+*.p12
+*.pfx
+.pypirc
+.netrc
+secrets.yaml
+secrets.yml
+.streamlit/secrets.toml
+
+# ---------------------------------------------------------------------------- #
+#                            Editor & OS scratch files                         #
+# ---------------------------------------------------------------------------- #
+
+.idea/
+.vscode/
+.history/
+.spyderproject
+.spyproject
+.ropeproject
+tempCodeRunnerFile.py
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# ---------------------------------------------------------------------------- #
+#                                 Binary assets                                #
+# ---------------------------------------------------------------------------- #
+
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.ico
+*.pdf
+*.zip
+*.gz
+*.woff
+*.woff2
+*.mo
+*.pot
+*.rdb
+*.aof
+*.log
+
+# ---------------------------------------------------------------------------- #
+#                                Generated docs                                #
+# ---------------------------------------------------------------------------- #
+
+docs/_build/
+docs/site/
+/site
+
+# ---------------------------------------------------------------------------- #
+#                        Agent notes and internal info                         #
+# ---------------------------------------------------------------------------- #
+
+agent_info/
