@@ -9,7 +9,7 @@ SHELL := /bin/bash
 # Ensure that when you run "make" without any arguments it displays the help menu
 .DEFAULT_GOAL := help
 
-.PHONY: help all clean test setup profile profile-export lint format typecheck lock update-hooks bench report analyze
+.PHONY: help all clean test setup profile profile-export lint format typecheck lock update-hooks bench report analyze verify lua-parity sample sdk
 
 # ==============================================================================
 # Development Workflow
@@ -42,6 +42,20 @@ clean: ## Wipe temporary files, caches, and test artifacts
 
 test: ## Execute the full test suite
 	uv run pytest tests
+
+verify: ## The local CI gate: every hook on every file, the full suite, a benchmark smoke run
+	uv run prek run --all-files --skip no-commit-to-branch
+	uv run pytest tests
+	uv run pytest tests -n 0 --no-cov --benchmark-enable --benchmark-only -q
+
+lua-parity: ## Compare the Python decoder with the Wireshark Lua dissector (needs tshark, podman or docker)
+	bash scripts/non-interactive/check-lua-parity.sh
+
+sample: ## Regenerate samples/synthetic.pcap from its readable source
+	uv run python tests/support/pcap_factory.py samples/synthetic.pcap
+
+sdk: ## Regenerate openapi.json and the SDK after an API or model change
+	bash scripts/non-interactive/generate-sdk.sh
 
 profile: ## Run Scalene profiler locally and open the Web UI
 	@echo "🔍 Launching Scalene Profiler on the application entry point..."

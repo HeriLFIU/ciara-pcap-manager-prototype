@@ -1,1 +1,1 @@
-"""Offline PCAP ingestion built on NFStream."""
+"""Offline capture reading and the flow extraction pipeline."""

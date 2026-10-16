@@ -15,6 +15,9 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
+# Pinned so that regenerating on another machine produces the same files.
+# Bump deliberately, and review the whole diff under packages/sdk when you do.
+OPENAPI_PYTHON_CLIENT_VERSION="0.29.1"
 config="scripts/non-interactive/sdk-generator.yaml"
 output="packages/sdk"
 codegen_schema="$(mktemp -d)/openapi.json"
@@ -28,7 +31,7 @@ uv run ciara-pcap-openapi --output "$codegen_schema" --for-codegen
 
 echo "==> Regenerating $output"
 rm -rf "$output"
-uv tool run --from openapi-python-client openapi-python-client generate \
+uv tool run --from "openapi-python-client==${OPENAPI_PYTHON_CLIENT_VERSION}" openapi-python-client generate \
     --path "$codegen_schema" \
     --meta uv \
     --output-path "$output" \

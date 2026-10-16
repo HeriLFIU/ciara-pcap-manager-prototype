@@ -1,13 +1,19 @@
-"""Rich table rendering for flows and jobs. Value formatting is shared."""
+"""Rich table rendering for flows, jobs and capture summaries."""
 
 from typing import TYPE_CHECKING
 
 from ciara_pcap_client import (
-    application_label,
+    Histogram,
+    endpoint,
     format_bytes,
+    format_count,
+    format_duration,
+    format_nanoseconds,
+    format_percent,
     format_timestamp,
-    is_set,
-    ranked_applications,
+    int_coverage,
+    protocol_label,
+    ranked_counts,
     value_or,
 )
 from rich.table import Table
@@ -15,6 +21,7 @@ from rich.text import Text
 
 if TYPE_CHECKING:
     from ciara_pcap_sdk.models import AnalysisJob, Flow, FlowSummary
+    from ciara_pcap_sdk.types import Unset
 
 _STATUS_STYLES = {
     "pending": "yellow",
@@ -40,7 +47,7 @@ def status_text(status: str) -> Text:
 
 def flows_table(flows: "list[Flow]", *, title: str | None = None) -> Table:
     """
-    Build a table of bidirectional flows.
+    Build a table of flow segments.
 
     Args:
         flows: The flows to render.
@@ -51,29 +58,46 @@ def flows_table(flows: "list[Flow]", *, title: str | None = None) -> Table:
 
     """
     table = Table(title=title, header_style="bold", expand=False)
-    table.add_column("#", justify="right", style="dim")
-    table.add_column("Source")
-    table.add_column("Destination")
+    table.add_column("Endpoint A")
+    table.add_column("Endpoint B")
     table.add_column("Proto")
-    table.add_column("Application")
-    table.add_column("Pkts", justify="right")
+    table.add_column("Seg", justify="right", style="dim")
+    table.add_column("Pkts A→B", justify="right")
+    table.add_column("Pkts B→A", justify="right")
     table.add_column("Bytes", justify="right")
     table.add_column("Duration", justify="right")
-    table.add_column("Server name")
+    table.add_column("INT latency", justify="right")
+    table.add_column("Ended by")
 
     for flow in flows:
         table.add_row(
-            str(flow.flow_id),
-            f"{flow.src_ip}:{flow.src_port}",
-            f"{flow.dst_ip}:{flow.dst_port}",
-            flow.protocol_name,
-            application_label(flow),
-            str(flow.bidirectional_packets),
-            format_bytes(flow.bidirectional_bytes),
-            f"{flow.duration_ms} ms",
-            value_or(flow.requested_server_name, ""),
+            endpoint(flow.ip_a, flow.port_a),
+            endpoint(flow.ip_b, flow.port_b),
+            protocol_label(flow.proto),
+            str(flow.flow_segment_id),
+            format_count(flow.pkts_fwd),
+            format_count(flow.pkts_bwd),
+            format_bytes(flow.bytes_total),
+            format_duration(flow.duration),
+            format_nanoseconds(flow.mean_hop_latency),
+            flow.termination_reason,
         )
     return table
+
+
+def _counts(summary_field: "Histogram | Unset") -> str:
+    """
+    Render a ``{name: count}`` summary field on one line.
+
+    Args:
+        summary_field: The SDK field.
+
+    Returns:
+        For example ``TCP 10,383 · UDP 5,075``.
+
+    """
+    pairs = ranked_counts(summary_field)
+    return " · ".join(f"{name} {format_count(count)}" for name, count in pairs)
 
 
 def summary_table(summary: "FlowSummary") -> Table:
@@ -87,25 +111,30 @@ def summary_table(summary: "FlowSummary") -> Table:
         The populated table.
 
     """
+    decode = summary.decode
     table = Table(show_header=False, box=None, pad_edge=False)
     table.add_column(style="bold")
     table.add_column()
-    table.add_row("Flows", str(summary.flow_count))
-    table.add_row("Packets", str(summary.packet_count))
+    table.add_row("Frames read", format_count(decode.frames_read))
+    table.add_row("Inner packets", format_count(decode.inner_packets))
+    table.add_row("INT coverage", format_percent(int_coverage(summary)))
+    table.add_row("Flows", format_count(summary.flow_count))
     table.add_row("Bytes", format_bytes(summary.byte_count))
-    if is_set(summary.first_seen_ms) and is_set(summary.last_seen_ms):
+    first, last = value_or(summary.first_seen, None), value_or(summary.last_seen, None)
+    if first is not None and last is not None:
+        table.add_row("First packet", format_timestamp(first))
+        table.add_row("Last packet", format_timestamp(last))
+    table.add_row("Protocols", _counts(summary.flows_by_protocol))
+    table.add_row("Ended by", _counts(summary.flows_by_termination))
+    if decode.packets_out_of_order:
         table.add_row(
-            "First packet", format_timestamp(value_or(summary.first_seen_ms, 0))
+            "Reordered",
+            f"{format_count(decode.packets_out_of_order)} out of order, "
+            f"{format_count(decode.packets_late)} beyond the window",
         )
-        table.add_row(
-            "Last packet", format_timestamp(value_or(summary.last_seen_ms, 0))
-        )
-    applications = ranked_applications(summary)
-    if applications:
-        table.add_row(
-            "Top applications",
-            ", ".join(f"{name} ({count})" for name, count in applications),
-        )
+    skipped = _counts(decode.skipped)
+    if skipped:
+        table.add_row("Skipped frames", skipped)
     return table
 
 
@@ -136,7 +165,7 @@ def jobs_table(jobs: "list[AnalysisJob]") -> Table:
             job.filename,
             status_text(str(job.status)),
             format_bytes(job.size_bytes),
-            "" if summary is None else str(summary.flow_count),
+            "" if summary is None else format_count(summary.flow_count),
             "" if created is None else created.strftime("%Y-%m-%d %H:%M:%S"),
         )
     return table

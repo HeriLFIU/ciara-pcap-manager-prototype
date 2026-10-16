@@ -103,219 +103,916 @@
         "title": "Body_upload_capture",
         "type": "object"
       },
-      "ExpirationReason": {
-        "description": "Why NFStream closed a flow.\n\nNFStream encodes this as ``expiration_id``: ``0`` for the idle timeout,\n``1`` for the active timeout and ``-1`` when an ``NFPlugin`` forced a\ncustom expiration.",
-        "enum": [
-          "idle_timeout",
-          "active_timeout",
-          "custom",
-          "unknown"
-        ],
-        "title": "ExpirationReason",
-        "type": "string"
-      },
-      "Flow": {
-        "description": "A single bidirectional flow extracted from a packet capture.",
+      "DecodeReport": {
+        "description": "What the decoder made of every frame in a capture.",
         "properties": {
-          "application_category_name": {
-            "description": "nDPI application category.",
-            "title": "Application Category Name",
-            "type": "string"
-          },
-          "application_confidence": {
-            "description": "nDPI confidence identifier.",
-            "title": "Application Confidence",
+          "frames_read": {
+            "description": "Frames read from the capture file.",
+            "minimum": 0.0,
+            "title": "Frames Read",
             "type": "integer"
           },
-          "application_is_guessed": {
-            "description": "True when nDPI inferred the label instead of dissecting it.",
-            "title": "Application Is Guessed",
-            "type": "boolean"
-          },
-          "application_name": {
-            "description": "nDPI application label, for example `DNS` or `TLS.Google`.",
-            "title": "Application Name",
-            "type": "string"
-          },
-          "bidirectional_bytes": {
-            "description": "Total bytes in both directions.",
-            "title": "Bidirectional Bytes",
+          "inner_packets": {
+            "description": "Frames whose inner TCP/UDP packet was decoded.",
+            "minimum": 0.0,
+            "title": "Inner Packets",
             "type": "integer"
           },
-          "bidirectional_packets": {
-            "description": "Total packets in both directions.",
-            "title": "Bidirectional Packets",
+          "packets_late": {
+            "description": "Out-of-order packets that lagged by more than the reorder window and were processed out of time order.",
+            "minimum": 0.0,
+            "title": "Packets Late",
             "type": "integer"
           },
-          "client_fingerprint": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "JA3/JA4-style client fingerprint, when available.",
-            "title": "Client Fingerprint"
-          },
-          "content_type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Cleartext HTTP content type, when observed.",
-            "title": "Content Type"
-          },
-          "dst2src_bytes": {
-            "description": "Bytes sent from destination to source.",
-            "title": "Dst2Src Bytes",
+          "packets_out_of_order": {
+            "description": "Decoded packets read with a timestamp earlier than one already read; the reorder buffer puts them back in time order.",
+            "minimum": 0.0,
+            "title": "Packets Out Of Order",
             "type": "integer"
           },
-          "dst2src_packets": {
-            "description": "Packets sent from destination to source.",
-            "title": "Dst2Src Packets",
+          "packets_over_flow_cap": {
+            "description": "Decoded packets dropped because they would have opened a flow beyond the configured cap.",
+            "minimum": 0.0,
+            "title": "Packets Over Flow Cap",
             "type": "integer"
           },
-          "dst_ip": {
-            "description": "Destination IP address of the first packet seen.",
-            "title": "Dst Ip",
-            "type": "string"
-          },
-          "dst_port": {
-            "description": "Destination transport port, or 0 when not applicable.",
-            "title": "Dst Port",
+          "packets_with_int": {
+            "description": "Decoded packets that also carried an INT header.",
+            "minimum": 0.0,
+            "title": "Packets With Int",
             "type": "integer"
           },
-          "duration_ms": {
-            "description": "Wall-clock lifetime of the flow.",
-            "title": "Duration Ms",
+          "packets_with_int_hops": {
+            "description": "Decoded packets with at least one INT hop decoded.",
+            "minimum": 0.0,
+            "title": "Packets With Int Hops",
             "type": "integer"
           },
-          "expiration_reason": {
-            "$ref": "#/components/schemas/ExpirationReason",
-            "description": "Why the flow was closed by the metering engine."
-          },
-          "first_seen_ms": {
-            "description": "Unix epoch milliseconds of the first packet in either direction.",
-            "title": "First Seen Ms",
-            "type": "integer"
-          },
-          "flow_id": {
-            "description": "Per-capture index assigned by NFStream.",
-            "title": "Flow Id",
-            "type": "integer"
-          },
-          "ip_version": {
-            "description": "IP version, 4 or 6.",
-            "title": "Ip Version",
-            "type": "integer"
-          },
-          "last_seen_ms": {
-            "description": "Unix epoch milliseconds of the last packet in either direction.",
-            "title": "Last Seen Ms",
-            "type": "integer"
-          },
-          "protocol": {
-            "description": "IANA IP protocol number.",
-            "title": "Protocol",
-            "type": "integer"
-          },
-          "protocol_name": {
-            "description": "Human-readable form of `protocol`.",
-            "title": "Protocol Name",
-            "type": "string"
-          },
-          "requested_server_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "TLS SNI or DNS query name, when one was observed.",
-            "title": "Requested Server Name"
-          },
-          "server_fingerprint": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Server-side handshake fingerprint, when available.",
-            "title": "Server Fingerprint"
-          },
-          "src2dst_bytes": {
-            "description": "Bytes sent from source to destination.",
-            "title": "Src2Dst Bytes",
-            "type": "integer"
-          },
-          "src2dst_packets": {
-            "description": "Packets sent from source to destination.",
-            "title": "Src2Dst Packets",
-            "type": "integer"
-          },
-          "src_ip": {
-            "description": "Source IP address of the first packet seen.",
-            "title": "Src Ip",
-            "type": "string"
-          },
-          "src_port": {
-            "description": "Source transport port, or 0 when not applicable.",
-            "title": "Src Port",
-            "type": "integer"
-          },
-          "user_agent": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Cleartext HTTP user agent, when observed.",
-            "title": "User Agent"
-          },
-          "vlan_id": {
-            "description": "VLAN identifier, 0 when untagged.",
-            "title": "Vlan Id",
-            "type": "integer"
+          "skipped": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Frames that yielded no inner packet, per reason.",
+            "title": "Skipped",
+            "type": "object"
           }
         },
         "required": [
+          "frames_read",
+          "inner_packets",
+          "packets_with_int",
+          "packets_with_int_hops",
+          "packets_out_of_order",
+          "packets_late",
+          "packets_over_flow_cap"
+        ],
+        "title": "DecodeReport",
+        "type": "object"
+      },
+      "Flow": {
+        "description": "One flow segment built from the inner packets of INT telemetry reports.",
+        "properties": {
+          "ack_count_bwd": {
+            "description": "ACK packets, B to A.",
+            "minimum": 0.0,
+            "title": "Ack Count Bwd",
+            "type": "integer"
+          },
+          "ack_count_fwd": {
+            "description": "ACK packets, A to B.",
+            "minimum": 0.0,
+            "title": "Ack Count Fwd",
+            "type": "integer"
+          },
+          "ack_fraction": {
+            "description": "ACK packets / `pkts_total`.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Ack Fraction",
+            "type": "number"
+          },
+          "ack_ratio_bwd": {
+            "description": "`ack_count_bwd / pkts_bwd`.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Ack Ratio Bwd",
+            "type": "number"
+          },
+          "ack_ratio_fwd": {
+            "description": "`ack_count_fwd / pkts_fwd`.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Ack Ratio Fwd",
+            "type": "number"
+          },
+          "base_flow_key": {
+            "description": "Direction-independent identity: `proto|ip_low|ip_high|port_low|port_high`.",
+            "title": "Base Flow Key",
+            "type": "string"
+          },
+          "bwd_Bps": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`bytes_bwd / duration`.",
+            "title": "Bwd Bps"
+          },
+          "bwd_pps": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`pkts_bwd / duration`.",
+            "title": "Bwd Pps"
+          },
+          "bytes_bwd": {
+            "description": "Inner IPv4 Total Length summed, B to A.",
+            "minimum": 0.0,
+            "title": "Bytes Bwd",
+            "type": "integer"
+          },
+          "bytes_fwd": {
+            "description": "Inner IPv4 Total Length summed, A to B.",
+            "minimum": 0.0,
+            "title": "Bytes Fwd",
+            "type": "integer"
+          },
+          "bytes_per_pkt_bwd": {
+            "description": "`bytes_bwd / pkts_bwd`, else 0.0.",
+            "title": "Bytes Per Pkt Bwd",
+            "type": "number"
+          },
+          "bytes_per_pkt_fwd": {
+            "description": "`bytes_fwd / pkts_fwd`, else 0.0.",
+            "title": "Bytes Per Pkt Fwd",
+            "type": "number"
+          },
+          "bytes_per_pkt_gap": {
+            "description": "`bytes_per_pkt_fwd - bytes_per_pkt_bwd`.",
+            "title": "Bytes Per Pkt Gap",
+            "type": "number"
+          },
+          "bytes_total": {
+            "description": "`bytes_fwd + bytes_bwd`.",
+            "minimum": 0.0,
+            "title": "Bytes Total",
+            "type": "integer"
+          },
+          "crosses_file_boundary": {
+            "description": "1 if the segment took packets from several files.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Crosses File Boundary",
+            "type": "integer"
+          },
+          "duration": {
+            "description": "Seconds from the first to the last packet.",
+            "minimum": 0.0,
+            "title": "Duration",
+            "type": "number"
+          },
+          "fin_count_bwd": {
+            "description": "FIN packets, B to A.",
+            "minimum": 0.0,
+            "title": "Fin Count Bwd",
+            "type": "integer"
+          },
+          "fin_count_fwd": {
+            "description": "FIN packets, A to B.",
+            "minimum": 0.0,
+            "title": "Fin Count Fwd",
+            "type": "integer"
+          },
+          "fin_fraction": {
+            "description": "FIN packets / `pkts_total`.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Fin Fraction",
+            "type": "number"
+          },
+          "fin_ratio_bwd": {
+            "description": "`fin_count_bwd / pkts_bwd`.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Fin Ratio Bwd",
+            "type": "number"
+          },
+          "fin_ratio_fwd": {
+            "description": "`fin_count_fwd / pkts_fwd`.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Fin Ratio Fwd",
+            "type": "number"
+          },
+          "first_observed_dst_ip": {
+            "description": "Equals `ip_b`.",
+            "title": "First Observed Dst Ip",
+            "type": "string"
+          },
+          "first_observed_dst_port": {
+            "description": "Equals `port_b`.",
+            "title": "First Observed Dst Port",
+            "type": "integer"
+          },
+          "first_observed_src_ip": {
+            "description": "Equals `ip_a`.",
+            "title": "First Observed Src Ip",
+            "type": "string"
+          },
+          "first_observed_src_port": {
+            "description": "Equals `port_a`.",
+            "title": "First Observed Src Port",
+            "type": "integer"
+          },
+          "first_packet_ack": {
+            "description": "1 if the first packet had ACK.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "First Packet Ack",
+            "type": "integer"
+          },
+          "first_packet_direction": {
+            "description": "Always `fwd`: A/B are taken from the first packet.",
+            "title": "First Packet Direction",
+            "type": "string"
+          },
+          "first_packet_syn": {
+            "description": "1 if the first packet had SYN.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "First Packet Syn",
+            "type": "integer"
+          },
+          "first_packet_was_syn": {
+            "description": "1 for TCP with SYN=1 and ACK=0 on the first packet.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "First Packet Was Syn",
+            "type": "integer"
+          },
+          "first_packet_was_syn_ack": {
+            "description": "1 for TCP with SYN=1 and ACK=1 on the first packet.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "First Packet Was Syn Ack",
+            "type": "integer"
+          },
+          "first_source_file": {
+            "description": "First capture file of the segment.",
+            "title": "First Source File",
+            "type": "string"
+          },
+          "first_timeframe_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "First timeframe observed.",
+            "title": "First Timeframe Id"
+          },
+          "flow_end_time": {
+            "description": "Epoch seconds of the last packet.",
+            "title": "Flow End Time",
+            "type": "number"
+          },
+          "flow_id": {
+            "description": "Segment identifier: `base_flow_key|segment`.",
+            "title": "Flow Id",
+            "type": "string"
+          },
+          "flow_initiator": {
+            "description": "Always `observed_first_packet_src`.",
+            "title": "Flow Initiator",
+            "type": "string"
+          },
+          "flow_segment_id": {
+            "description": "Segment counter per `base_flow_key`, starting at 0.",
+            "minimum": 0.0,
+            "title": "Flow Segment Id",
+            "type": "integer"
+          },
+          "flow_start_time": {
+            "description": "Epoch seconds of the first packet.",
+            "title": "Flow Start Time",
+            "type": "number"
+          },
+          "fwd_Bps": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`bytes_fwd / duration`.",
+            "title": "Fwd Bps"
+          },
+          "fwd_pps": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`pkts_fwd / duration`.",
+            "title": "Fwd Pps"
+          },
+          "fwd_share_bytes": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`bytes_fwd / bytes_total`.",
+            "title": "Fwd Share Bytes"
+          },
+          "fwd_share_pkts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`pkts_fwd / pkts_total`.",
+            "title": "Fwd Share Pkts"
+          },
+          "iat_int_count": {
+            "description": "INT-timestamp inter-arrival observations in the segment.",
+            "minimum": 0.0,
+            "title": "Iat Int Count",
+            "type": "integer"
+          },
+          "iat_max_int_ns": {
+            "description": "Largest INT inter-arrival (ns); 0.0 if none.",
+            "title": "Iat Max Int Ns",
+            "type": "number"
+          },
+          "iat_min_int_ns": {
+            "description": "Smallest INT inter-arrival (ns); 0.0 if none.",
+            "title": "Iat Min Int Ns",
+            "type": "number"
+          },
+          "iat_std_int_ns": {
+            "description": "Population std dev of INT inter-arrival (ns); 0.0 if <= 1.",
+            "title": "Iat Std Int Ns",
+            "type": "number"
+          },
+          "initiator_confidence": {
+            "$ref": "#/components/schemas/InitiatorConfidence",
+            "description": "`tcp_syn_noack_observed` when the first packet was a bare SYN, otherwise `observed_first_packet`."
+          },
+          "ip_a": {
+            "description": "Source address of the segment's first packet.",
+            "title": "Ip A",
+            "type": "string"
+          },
+          "ip_b": {
+            "description": "Destination address of the segment's first packet.",
+            "title": "Ip B",
+            "type": "string"
+          },
+          "last_source_file": {
+            "description": "Last capture file of the segment.",
+            "title": "Last Source File",
+            "type": "string"
+          },
+          "last_timeframe_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last timeframe observed.",
+            "title": "Last Timeframe Id"
+          },
+          "latency_max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Largest per-packet INT latency (ns).",
+            "title": "Latency Max"
+          },
+          "latency_min": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Smallest per-packet INT latency (ns).",
+            "title": "Latency Min"
+          },
+          "latency_std": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Population std dev of per-packet INT latency (ns).",
+            "title": "Latency Std"
+          },
+          "mean_hop_count": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mean INT hops per packet, over packets carrying INT hops.",
+            "title": "Mean Hop Count"
+          },
+          "mean_hop_latency": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mean per-packet INT latency (ns, summed over hops).",
+            "title": "Mean Hop Latency"
+          },
+          "mean_iat_int_ns": {
+            "description": "Mean INT inter-arrival (ns); 0.0 if none.",
+            "title": "Mean Iat Int Ns",
+            "type": "number"
+          },
+          "mean_pkt_size": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mean packet size in bytes.",
+            "title": "Mean Pkt Size"
+          },
+          "pkt_size_max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Largest packet size in bytes.",
+            "title": "Pkt Size Max"
+          },
+          "pkt_size_min": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Smallest packet size in bytes.",
+            "title": "Pkt Size Min"
+          },
+          "pkt_size_std": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Population std dev of sizes.",
+            "title": "Pkt Size Std"
+          },
+          "pkts_bwd": {
+            "description": "Packets from B to A.",
+            "minimum": 0.0,
+            "title": "Pkts Bwd",
+            "type": "integer"
+          },
+          "pkts_fwd": {
+            "description": "Packets from A to B.",
+            "minimum": 0.0,
+            "title": "Pkts Fwd",
+            "type": "integer"
+          },
+          "pkts_total": {
+            "description": "`pkts_fwd + pkts_bwd`.",
+            "minimum": 0.0,
+            "title": "Pkts Total",
+            "type": "integer"
+          },
+          "port_a": {
+            "description": "Port paired with `ip_a`.",
+            "title": "Port A",
+            "type": "integer"
+          },
+          "port_b": {
+            "description": "Port paired with `ip_b`.",
+            "title": "Port B",
+            "type": "integer"
+          },
+          "proto": {
+            "description": "IP protocol number: 6 for TCP, 17 for UDP.",
+            "title": "Proto",
+            "type": "integer"
+          },
+          "psh_count_bwd": {
+            "description": "PSH packets, B to A.",
+            "minimum": 0.0,
+            "title": "Psh Count Bwd",
+            "type": "integer"
+          },
+          "psh_count_fwd": {
+            "description": "PSH packets, A to B.",
+            "minimum": 0.0,
+            "title": "Psh Count Fwd",
+            "type": "integer"
+          },
+          "psh_fraction": {
+            "description": "PSH packets / `pkts_total`.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Psh Fraction",
+            "type": "number"
+          },
+          "psh_ratio_bwd": {
+            "description": "`psh_count_bwd / pkts_bwd`.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Psh Ratio Bwd",
+            "type": "number"
+          },
+          "psh_ratio_fwd": {
+            "description": "`psh_count_fwd / pkts_fwd`.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Psh Ratio Fwd",
+            "type": "number"
+          },
+          "queue_occupancy_max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Largest INT queue occupancy.",
+            "title": "Queue Occupancy Max"
+          },
+          "queue_occupancy_mean": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mean INT queue occupancy over every hop observation.",
+            "title": "Queue Occupancy Mean"
+          },
+          "queue_occupancy_std": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Population std dev of INT queue occupancy.",
+            "title": "Queue Occupancy Std"
+          },
+          "rst_count_bwd": {
+            "description": "RST packets, B to A.",
+            "minimum": 0.0,
+            "title": "Rst Count Bwd",
+            "type": "integer"
+          },
+          "rst_count_fwd": {
+            "description": "RST packets, A to B.",
+            "minimum": 0.0,
+            "title": "Rst Count Fwd",
+            "type": "integer"
+          },
+          "rst_fraction": {
+            "description": "RST packets / `pkts_total`.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Rst Fraction",
+            "type": "number"
+          },
+          "rst_ratio_bwd": {
+            "description": "`rst_count_bwd / pkts_bwd`.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Rst Ratio Bwd",
+            "type": "number"
+          },
+          "rst_ratio_fwd": {
+            "description": "`rst_count_fwd / pkts_fwd`.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Rst Ratio Fwd",
+            "type": "number"
+          },
+          "small_pkt_fraction_total": {
+            "description": "Share of packets of at most 100 bytes.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Small Pkt Fraction Total",
+            "type": "number"
+          },
+          "source_file_count": {
+            "description": "1 plus the number of source-file changes in the segment.",
+            "minimum": 1.0,
+            "title": "Source File Count",
+            "type": "integer"
+          },
+          "syn_ack_gap": {
+            "description": "`syn_count_fwd - ack_count_bwd`.",
+            "title": "Syn Ack Gap",
+            "type": "integer"
+          },
+          "syn_count_bwd": {
+            "description": "SYN packets, B to A.",
+            "minimum": 0.0,
+            "title": "Syn Count Bwd",
+            "type": "integer"
+          },
+          "syn_count_fwd": {
+            "description": "SYN packets, A to B.",
+            "minimum": 0.0,
+            "title": "Syn Count Fwd",
+            "type": "integer"
+          },
+          "syn_fraction": {
+            "description": "SYN packets / `pkts_total`.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Syn Fraction",
+            "type": "number"
+          },
+          "syn_ratio_bwd": {
+            "description": "`syn_count_bwd / pkts_bwd`.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Syn Ratio Bwd",
+            "type": "number"
+          },
+          "syn_ratio_fwd": {
+            "description": "`syn_count_fwd / pkts_fwd`.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Syn Ratio Fwd",
+            "type": "number"
+          },
+          "termination_reason": {
+            "$ref": "#/components/schemas/TerminationReason",
+            "description": "Why the segment was closed."
+          },
+          "timeframe_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Timeframe of the segment's first packet (the capture's file name without its extension).",
+            "title": "Timeframe Id"
+          },
+          "tiny_pkt_fraction_total": {
+            "description": "Share of packets of at most 40 bytes.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Tiny Pkt Fraction Total",
+            "type": "number"
+          },
+          "total_Bps": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`bytes_total / duration`.",
+            "title": "Total Bps"
+          },
+          "total_pps": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`pkts_total / duration`.",
+            "title": "Total Pps"
+          },
+          "truncated_ip_fraction": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Share of packets whose captured inner IPv4 bytes differ from its declared Total Length.",
+            "title": "Truncated Ip Fraction"
+          },
+          "truncated_udp_fraction": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Share of packets whose captured inner UDP bytes differ from its declared Length.",
+            "title": "Truncated Udp Fraction"
+          },
+          "urg_count_bwd": {
+            "description": "URG packets, B to A.",
+            "minimum": 0.0,
+            "title": "Urg Count Bwd",
+            "type": "integer"
+          },
+          "urg_count_fwd": {
+            "description": "URG packets, A to B.",
+            "minimum": 0.0,
+            "title": "Urg Count Fwd",
+            "type": "integer"
+          },
+          "urg_fraction": {
+            "description": "URG packets / `pkts_total`.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Urg Fraction",
+            "type": "number"
+          },
+          "urg_ratio_bwd": {
+            "description": "`urg_count_bwd / pkts_bwd`.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Urg Ratio Bwd",
+            "type": "number"
+          },
+          "urg_ratio_fwd": {
+            "description": "`urg_count_fwd / pkts_fwd`.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Urg Ratio Fwd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "base_flow_key",
           "flow_id",
-          "expiration_reason",
-          "src_ip",
-          "src_port",
-          "dst_ip",
-          "dst_port",
-          "protocol",
-          "protocol_name",
-          "ip_version",
-          "vlan_id",
-          "first_seen_ms",
-          "last_seen_ms",
-          "duration_ms",
-          "bidirectional_packets",
-          "bidirectional_bytes",
-          "src2dst_packets",
-          "src2dst_bytes",
-          "dst2src_packets",
-          "dst2src_bytes",
-          "application_name",
-          "application_category_name",
-          "application_is_guessed",
-          "application_confidence"
+          "flow_segment_id",
+          "timeframe_id",
+          "proto",
+          "ip_a",
+          "ip_b",
+          "port_a",
+          "port_b",
+          "first_observed_src_ip",
+          "first_observed_dst_ip",
+          "first_observed_src_port",
+          "first_observed_dst_port",
+          "first_packet_syn",
+          "first_packet_ack",
+          "first_packet_was_syn",
+          "first_packet_was_syn_ack",
+          "first_packet_direction",
+          "flow_initiator",
+          "initiator_confidence",
+          "pkts_fwd",
+          "pkts_bwd",
+          "bytes_fwd",
+          "bytes_bwd",
+          "pkts_total",
+          "bytes_total",
+          "duration",
+          "flow_start_time",
+          "flow_end_time",
+          "termination_reason",
+          "first_source_file",
+          "last_source_file",
+          "source_file_count",
+          "first_timeframe_id",
+          "last_timeframe_id",
+          "crosses_file_boundary",
+          "fwd_pps",
+          "bwd_pps",
+          "total_pps",
+          "total_Bps",
+          "fwd_Bps",
+          "bwd_Bps",
+          "mean_pkt_size",
+          "pkt_size_std",
+          "pkt_size_min",
+          "pkt_size_max",
+          "mean_hop_count",
+          "mean_hop_latency",
+          "iat_int_count",
+          "mean_iat_int_ns",
+          "iat_std_int_ns",
+          "iat_min_int_ns",
+          "iat_max_int_ns",
+          "latency_min",
+          "latency_max",
+          "latency_std",
+          "syn_count_fwd",
+          "syn_count_bwd",
+          "syn_ratio_fwd",
+          "syn_ratio_bwd",
+          "syn_fraction",
+          "ack_count_fwd",
+          "ack_count_bwd",
+          "ack_ratio_fwd",
+          "ack_ratio_bwd",
+          "ack_fraction",
+          "fin_count_fwd",
+          "fin_count_bwd",
+          "fin_ratio_fwd",
+          "fin_ratio_bwd",
+          "fin_fraction",
+          "rst_count_fwd",
+          "rst_count_bwd",
+          "rst_ratio_fwd",
+          "rst_ratio_bwd",
+          "rst_fraction",
+          "psh_count_fwd",
+          "psh_count_bwd",
+          "psh_ratio_fwd",
+          "psh_ratio_bwd",
+          "psh_fraction",
+          "urg_count_fwd",
+          "urg_count_bwd",
+          "urg_ratio_fwd",
+          "urg_ratio_bwd",
+          "urg_fraction",
+          "bytes_per_pkt_fwd",
+          "bytes_per_pkt_bwd",
+          "bytes_per_pkt_gap",
+          "small_pkt_fraction_total",
+          "tiny_pkt_fraction_total",
+          "syn_ack_gap",
+          "fwd_share_pkts",
+          "fwd_share_bytes",
+          "queue_occupancy_mean",
+          "queue_occupancy_std",
+          "queue_occupancy_max",
+          "truncated_ip_fraction",
+          "truncated_udp_fraction"
         ],
         "title": "Flow",
         "type": "object"
@@ -360,57 +1057,70 @@
         "description": "Aggregate statistics describing an analysed capture.",
         "properties": {
           "byte_count": {
-            "description": "Total bytes across every flow.",
+            "description": "Inner bytes across every flow.",
             "title": "Byte Count",
             "type": "integer"
           },
-          "first_seen_ms": {
+          "decode": {
+            "$ref": "#/components/schemas/DecodeReport",
+            "description": "How the capture's frames were decoded."
+          },
+          "first_seen": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "number"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Earliest packet timestamp across every flow.",
-            "title": "First Seen Ms"
+            "description": "Epoch seconds of the earliest flow start.",
+            "title": "First Seen"
           },
           "flow_count": {
-            "description": "Number of bidirectional flows extracted.",
+            "description": "Number of flow segments.",
             "title": "Flow Count",
             "type": "integer"
           },
-          "last_seen_ms": {
+          "flows_by_protocol": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Flow count per protocol name.",
+            "title": "Flows By Protocol",
+            "type": "object"
+          },
+          "flows_by_termination": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Flow count per termination reason.",
+            "title": "Flows By Termination",
+            "type": "object"
+          },
+          "last_seen": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "number"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Latest packet timestamp across every flow.",
-            "title": "Last Seen Ms"
+            "description": "Epoch seconds of the latest flow end.",
+            "title": "Last Seen"
           },
           "packet_count": {
-            "description": "Total packets across every flow.",
+            "description": "Inner packets across every flow.",
             "title": "Packet Count",
             "type": "integer"
-          },
-          "top_applications": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "description": "Flow count per nDPI application, highest first.",
-            "title": "Top Applications",
-            "type": "object"
           }
         },
         "required": [
           "flow_count",
           "packet_count",
-          "byte_count"
+          "byte_count",
+          "decode"
         ],
         "title": "FlowSummary",
         "type": "object"
@@ -449,6 +1159,16 @@
         "title": "HealthResponse",
         "type": "object"
       },
+      "InitiatorConfidence": {
+        "description": "How much the first packet says about who opened the flow.",
+        "enum": [
+          "tcp_syn_noack_observed",
+          "observed_first_packet",
+          "unknown"
+        ],
+        "title": "InitiatorConfidence",
+        "type": "string"
+      },
       "JobStatus": {
         "description": "Lifecycle state of an analysis job.",
         "enum": [
@@ -458,6 +1178,18 @@
           "failed"
         ],
         "title": "JobStatus",
+        "type": "string"
+      },
+      "TerminationReason": {
+        "description": "Why a flow segment was closed.",
+        "enum": [
+          "inactive_timeout",
+          "active_timeout",
+          "tcp_rst",
+          "tcp_fin_both",
+          "end_of_input"
+        ],
+        "title": "TerminationReason",
         "type": "string"
       },
       "ValidationError": {
@@ -503,7 +1235,7 @@
     }
   },
   "info": {
-    "summary": "Extracts bidirectional flow metadata from offline packet captures.",
+    "summary": "Builds flows from the inner packets of INT telemetry captures.",
     "title": "CIARA PCAP Analysis API",
     "version": "0.1.0"
   },

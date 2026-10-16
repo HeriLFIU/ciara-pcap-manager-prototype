@@ -27,7 +27,7 @@ from ciara_pcap_client import (
 )
 from ciara_pcap_sdk import Client
 
-from tests.support.factories import make_flow
+from tests.support.factories import make_flow, summary_payload
 
 JOB_ID = UUID("11111111-2222-3333-4444-555555555555")
 PCAP_MAGIC = b"\xd4\xc3\xb2\xa1"
@@ -49,9 +49,9 @@ def job_payload(status: str = "pending", **extra: Any) -> dict[str, Any]:  # noq
     } | extra
 
 
-def flow_payload(flow_id: int) -> dict[str, Any]:
+def flow_payload(segment: int) -> dict[str, Any]:
     """Build the JSON body of a single flow."""
-    return json.loads(make_flow(flow_id=flow_id).model_dump_json())
+    return json.loads(make_flow(flow_segment_id=segment).model_dump_json())
 
 
 def stub_client(handler: Callable[[httpx.Request], httpx.Response]) -> Client:
@@ -165,7 +165,7 @@ async def test_flows_are_fetched_page_by_page() -> None:
             client, JOB_ID, page_size=2, on_page=lambda a, b: progress.append((a, b))
         )
 
-    assert [flow.flow_id for flow in flows] == [0, 1, 2, 3, 4]
+    assert [flow.flow_segment_id for flow in flows] == [0, 1, 2, 3, 4]
     assert progress == [(2, 5), (4, 5), (5, 5)]
 
 
@@ -195,15 +195,7 @@ async def test_the_whole_workflow_runs_end_to_end(capture: Path) -> None:
             )
         return httpx.Response(
             200,
-            json=job_payload(
-                "succeeded",
-                summary={
-                    "flow_count": 1,
-                    "packet_count": 8,
-                    "byte_count": 509,
-                    "top_applications": {"HTTP": 1},
-                },
-            ),
+            json=job_payload("succeeded", summary=summary_payload()),
         )
 
     async with stub_client(handler) as client:
@@ -213,9 +205,10 @@ async def test_the_whole_workflow_runs_end_to_end(capture: Path) -> None:
     assert len(flows) == 1
     summary = value_or(job.summary, None)
     assert summary is not None
-    applications = value_or(summary.top_applications, None)
-    assert applications is not None
-    assert applications.additional_properties == {"HTTP": 1}
+    protocols = value_or(summary.flows_by_protocol, None)
+    assert protocols is not None
+    assert protocols.additional_properties == {"TCP": 1}
+    assert summary.decode.inner_packets == 10
 
 
 async def test_a_failed_job_short_circuits_the_flow_fetch(capture: Path) -> None:

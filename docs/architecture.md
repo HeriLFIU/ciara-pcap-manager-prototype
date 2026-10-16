@@ -5,11 +5,11 @@
 ```mermaid
 flowchart TB
     subgraph clients["Clients — packages/cli, packages/gui"]
-        GUI["PySide6 GUI<br/><i>qasync: asyncio on the Qt loop</i>"]
+        GUI["PySide6 desktop app<br/><i>qasync: asyncio on the Qt loop</i>"]
         CLI["Typer CLI<br/><i>ciara-pcap</i>"]
     end
 
-    WORKFLOW["<b>ciara_pcap_client</b><br/>upload → poll → page<br/><i>the job lifecycle, written once</i>"]
+    WORKFLOW["<b>ciara_pcap_client</b><br/>upload → poll → page → CSV<br/><i>the job lifecycle, written once</i>"]
     SDK["<b>ciara_pcap_sdk</b><br/><i>generated — attrs over httpx</i>"]
 
     subgraph api["FastAPI backend — packages/api"]
@@ -19,75 +19,77 @@ flowchart TB
         STORE["InMemoryJobStore<br/><i>implements JobStore</i>"]
     end
 
-    subgraph core["Shared core — src/ciara_pcap_manager_prototype"]
-        MODELS["Pydantic models<br/>Flow · AnalysisJob · FlowSummary"]
+    subgraph core["Core — src/ciara_pcap_manager_prototype"]
+        MODELS["Pydantic models<br/>Flow · FlowSummary · DecodeReport · AnalysisJob"]
         RUNNER["FlowExtractionRunner<br/><i>implements FlowExtractor</i>"]
+        PIPE["reader → decoder → packet rows<br/>→ reorder → flow generator"]
     end
 
-    WORKER["spawn worker process<br/><b>NFStream + nDPI</b><br/><i>isolated, time limited</i>"]
+    WORKER["spawn worker process<br/><i>isolated, time limited</i>"]
     DISK[("uploaded captures<br/>.data/captures")]
     CONTRACT["openapi.json<br/><i>committed contract</i>"]
+    INSPECT["ciara-pcap-inspect<br/><i>offline, in-process</i>"]
 
     GUI --> WORKFLOW
     CLI --> WORKFLOW
     WORKFLOW --> SDK
     SDK -->|"HTTP + JSON"| ROUTES
     ROUTES -->|"AnalysisServiceDep"| SERVICE
-    SERVICE --> STORAGE
-    STORAGE --> DISK
+    SERVICE --> STORAGE --> DISK
     SERVICE --> STORE
     SERVICE -->|"FlowExtractor protocol"| RUNNER
     RUNNER -->|"spawn + result queue"| WORKER
-    DISK -->|"reads the file"| WORKER
-    WORKER -->|"list of Flow"| RUNNER
-    RUNNER --> STORE
+    WORKER --> PIPE
+    DISK -->|"reads the file"| PIPE
+    INSPECT --> PIPE
 
     MODELS -.->|"FastAPI renders"| CONTRACT
     CONTRACT -.->|"openapi-python-client"| SDK
-    MODELS -.-> SERVICE
 
     classDef generated stroke-dasharray: 5 3
     class SDK,CONTRACT generated
 ```
 
 Solid edges are runtime data flow. Dashed edges are the build-time contract
-path: the Pydantic models in the core package are rendered into `openapi.json`,
-which generates the SDK. A client therefore cannot drift from the backend.
+path: the Pydantic models in the core are rendered into `openapi.json`, which
+generates the SDK, so a client cannot drift from the backend.
+[How it works](how-it-works.md) explains the packet pipeline inside the core.
 
 ## Repository layout
 
-| Path                                      | What it is                                                                                                                        |
-| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `src/ciara_pcap_manager_prototype/`       | Shared core. Imports no web framework, HTTP client or GUI toolkit.                                                                |
-| `src/…/config.py`                         | `CoreSettings`: storage, upload limits and extraction knobs, read from `CIARA_PCAP_*`.                                            |
-| `src/…/domain/flows.py`                   | `Flow`, `FlowSummary`, `FlowPage`, `ExpirationReason`. The contract's source of truth.                                            |
-| `src/…/domain/jobs.py`                    | `AnalysisJob`, `JobStatus`.                                                                                                       |
-| `src/…/jobs/store.py`                     | `JobStore` protocol and `JobNotFoundError`. The persistence seam.                                                                 |
-| `src/…/jobs/memory.py`                    | `InMemoryJobStore`: the single-process implementation.                                                                            |
-| `src/…/pcap/extractor.py`                 | Synchronous NFStream parse; maps an `NFlow` onto `Flow`.                                                                          |
-| `src/…/pcap/runner.py`                    | `FlowExtractor` protocol and `FlowExtractionRunner`, which parses in a time-limited `spawn` process.                              |
-| `src/…/pcap/compat.py`                    | Finds `wpcap.dll` so NFStream's engine loads on Windows.                                                                          |
-| `src/…/pcap/_bootstrap/`                  | A `sitecustomize` hook applying that fix in every spawned subprocess. Must hold nothing else — it sits on `PYTHONPATH`.           |
-| `src/…/pcap/profile.py`                   | One synchronous call for `make profile` to measure.                                                                               |
-| `packages/api/`                           | The FastAPI application (`ciara-pcap-api`).                                                                                       |
-| `packages/api/…/main.py`                  | `create_app()` and the lifespan that builds long-lived collaborators onto `app.state`.                                            |
-| `packages/api/…/api/main.py`              | Aggregates every route module into one `api_router`.                                                                              |
-| `packages/api/…/api/deps.py`              | `AnalysisServiceDep` — the only place a route reaches into `app.state`.                                                           |
-| `packages/api/…/api/routes/`              | One module per resource: `captures.py`, `health.py`. Path operations only.                                                        |
-| `packages/api/…/core/config.py`           | `ApiSettings`: `CoreSettings` plus HTTP-only knobs (host, port, CORS).                                                            |
-| `packages/api/…/core/storage.py`          | `CaptureStorage`: streams an upload to disk, validated by magic number.                                                           |
-| `packages/api/…/services/analysis.py`     | `AnalysisService`: accept upload → schedule parse → record outcome.                                                               |
-| `packages/api/…/openapi.py`               | Dumps the schema from the app object, so SDK generation needs no server.                                                          |
-| `packages/sdk/`                           | **Generated.** Typed HTTP client. Excluded from ruff, pyright and codespell. Never hand-edit.                                     |
-| `packages/client/`                        | Async helpers over the SDK: `workflow.py` (job lifecycle), `format.py` (shared value formatting), `unset.py` (`UNSET` narrowing). |
-| `packages/cli/`                           | Typer CLI. `app.py` is commands and I/O; `rendering.py` builds Rich tables.                                                       |
-| `packages/gui/`                           | PySide6 client. `__main__.py` installs the qasync loop; `main_window.py` is the window; `models.py` is the `QAbstractTableModel`. |
-| `tests/unit/`                             | No network, no native engine. Runs in parallel.                                                                                   |
-| `tests/integration/`                      | Real NFStream parses. Needs `-n 0`.                                                                                               |
-| `tests/support/`                          | Model factories and `pcap_factory.py`, which writes the synthetic capture.                                                        |
-| `openapi.json`                            | The published contract. Regenerate, never edit.                                                                                   |
-| `scripts/non-interactive/generate-sdk.sh` | Exports the schema and regenerates `packages/sdk`.                                                                                |
-| `scripts/launch_app.py`                   | Starts the backend, waits for `/health`, launches the GUI, then reaps the tree. Backs `launch.bat`.                               |
+| Path                                  | What it is                                                                                                |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `src/ciara_pcap_manager_prototype/`   | Core library. Imports no web framework, HTTP client or GUI toolkit, and no native capture library.        |
+| `src/…/config.py`                     | `CoreSettings`: storage, limits, telemetry port, timeouts and reorder window, read from `CIARA_PCAP_*`.   |
+| `src/…/domain/flows.py`               | `Flow` (the 99 codebook columns, in export order), `FlowSummary`, `DecodeReport`, `FlowPage`.             |
+| `src/…/domain/jobs.py`                | `AnalysisJob`, `JobStatus`.                                                                               |
+| `src/…/pcap/reader.py`                | Streaming classic pcap and pcapng reader yielding `Frame`s.                                               |
+| `src/…/telemetry/layers.py`           | Immutable records for the outer headers, the report header, the inner packet and the INT data.            |
+| `src/…/telemetry/decoder.py`          | `decode_frame`: the Python counterpart of the Lua dissector; returns a `DecodedPacket` or a `SkipReason`. |
+| `src/…/telemetry/describe.py`         | Layer-by-layer text rendering used by `ciara-pcap-inspect --inspect`.                                     |
+| `src/…/flows/packet.py`               | `PacketRecord`: codebook §1 packet columns.                                                               |
+| `src/…/flows/reorder.py`              | `ReorderBuffer`: restores capture-time order within a window.                                             |
+| `src/…/flows/generator.py`            | `FlowGenerator`: flow keys, segments, termination reasons.                                                |
+| `src/…/flows/segment.py`              | `FlowSegment`: running counters and the codebook §3 formulas.                                             |
+| `src/…/flows/export.py`               | CSV in codebook column order.                                                                             |
+| `src/…/pcap/extractor.py`             | `extract_flows`: wires the stages together and builds the decode report.                                  |
+| `src/…/pcap/runner.py`                | `FlowExtractor` protocol and `FlowExtractionRunner`, which parses in a time-limited `spawn` process.      |
+| `src/…/main.py`                       | `ciara-pcap-inspect`, the offline command line.                                                           |
+| `src/…/jobs/`                         | `JobStore` protocol and the in-memory implementation.                                                     |
+| `packages/api/`                       | The FastAPI application (`ciara-pcap-api`).                                                               |
+| `packages/api/…/services/analysis.py` | `AnalysisService`: accept upload → schedule parse → record outcome.                                       |
+| `packages/api/…/openapi.py`           | Dumps the schema from the app object, so SDK generation needs no server.                                  |
+| `packages/sdk/`                       | **Generated.** Typed HTTP client. Excluded from ruff, pyright and codespell. Never hand-edit.             |
+| `packages/client/`                    | Async workflow over the SDK, shared formatting, and the CSV writer for SDK flows.                         |
+| `packages/cli/`                       | Typer CLI. `app.py` is commands and I/O; `rendering.py` builds Rich tables.                               |
+| `packages/gui/`                       | PySide6 desktop app; see [below](#desktop-app).                                                           |
+| `tools/wireshark/`                    | The team's Lua dissector, kept as delivered.                                                              |
+| `docs/reference/feature_codebook.md`  | The PIPELINE_V2 feature codebook; the tests check the code against it.                                    |
+| `tests/unit/`                         | Fast tests; no network. GUI widget tests skip when the Qt libraries are missing.                          |
+| `tests/integration/`                  | The real 50,000-frame sample and the worker process.                                                      |
+| `tests/support/`                      | `pcap_factory.py` builds INT telemetry frames from readable source; `factories.py` builds models.         |
+| `scripts/check_lua_parity.py`         | Compares the decoder with the Lua dissector's tshark output.                                              |
+| `openapi.json`                        | The published contract. Regenerate, never edit.                                                           |
 
 ## One lockfile, one environment
 
@@ -96,11 +98,10 @@ schema change, the SDK regeneration and the client updates land in one commit
 and are tested together. The `uv` workspace gives that without vendoring:
 
 - `[tool.uv.workspace] members = ["packages/*"]` in the root `pyproject.toml`.
-- One `uv.lock` and one `.venv`, both at the root. No package has its own.
-- Every cross-package dependency is declared normally in `[project.dependencies]`
-  and resolved locally by `[tool.uv.sources] <name> = { workspace = true }`.
-- The root `dev` group depends on all five packages, so plain `uv sync` installs
-  the whole workspace editable.
+- One `uv.lock` and one `.venv`, both at the root.
+- Cross-package dependencies resolve locally through `[tool.uv.sources]`.
+- The root `dev` group depends on all five packages, so plain `uv sync`
+  installs the whole workspace editable.
 
 ```text
 ciara-pcap-prototype  (root, src/)   ← the core library
@@ -111,73 +112,71 @@ ciara-pcap-prototype  (root, src/)   ← the core library
 └── ciara-pcap-gui    → client, sdk
 ```
 
-The core package holds nothing that imports FastAPI, httpx or Qt. That is what
-lets a future worker depend on it without pulling a web framework into its
-image.
+## Why the core decodes the packets itself
+
+See [ADR 0001](adr/0001-decode-inner-packets-in-python.md). A generic flow
+meter keys flows on the outer, switch-to-collector headers and never reaches
+the user traffic inside the telemetry reports. The decoder follows the Lua
+dissector's rules instead: walk the full captured frame, trust no length
+field as a bound, find INT after a fixed 20-byte TCP header.
 
 ## Why uploads return 202, not the flows
 
-Parsing a capture is CPU-bound and unbounded in duration. A synchronous
-endpoint is fine for a five-flow test file and wrong for everything else: the
-request times out, the connection dies, the work is lost.
-
-So the backend writes the upload to disk in bounded chunks, creates a job,
-returns `202 Accepted` with its id, and parses outside the request. Clients poll
+Parsing a capture is CPU-bound and its duration grows with the file. The
+backend writes the upload to disk in bounded chunks, creates a job, returns
+`202 Accepted` with its id, and parses outside the request. Clients poll
 `GET /captures/{job_id}`, then page `GET /captures/{job_id}/flows`.
 
-This is also the contract a Celery deployment exposes. Replacing
+This is also the contract a task-queue deployment would expose: replacing
 `FlowExtractionRunner` with a Celery task and `InMemoryJobStore` with Redis
 changes no route, no SDK call and no client.
 
 ## Why extraction runs in its own process
 
-NFStream cannot be called on an event loop:
-
-- it is CPU-bound, so running it inline blocks every other request;
-- it starts `multiprocessing` metering processes of its own;
-- a malformed capture can make it block indefinitely.
+- Decoding is pure Python, so a thread would hold the interpreter lock for
+  most of the parse and slow every other request.
+- A hostile or corrupt capture must not take the server down.
+- A parse that runs away must be stoppable.
 
 `FlowExtractionRunner` starts one `spawn` process per capture and waits on a
-result queue with a deadline, killing the worker if it overruns.
-`ProcessPoolExecutor` was tried and rejected: it cannot time out or terminate an
-individual task, so a hung parse would pin a job in `running` for ever.
+result queue with a deadline, killing the worker if it overruns. Every wait
+is capped by the time left, so even a deadline shorter than the polling
+interval is enforced. `ProcessPoolExecutor` was rejected because it cannot time
+out or terminate an individual task.
 
-## The Windows packet-capture runtime
-
-NFStream's engine links against `wpcap.dll`, supplied by
-[Npcap](https://npcap.com/) in `%SystemRoot%\System32\Npcap\`. A machine that
-ever had the retired WinPcap still carries a 2013-era `wpcap.dll` in `System32`
-itself — which is searched first. The engine binds to the old library and fails:
+## Desktop app
 
 ```text
-ImportError: DLL load failed while importing _lib_engine:
-The specified procedure could not be found.
+packages/gui/src/ciara_pcap_gui/
+├── __main__.py      QApplication + qasync event loop
+├── main_window.py   shell (sidebar, header, status bar) and controller
+├── state.py         AnalysisState: the loaded job and flows, analysis_changed signal
+├── theme.py         colour tokens (light, dark) → generated stylesheet
+├── models.py        table models (columns declared as data) and the flow filter
+├── features.py      grouping and formatting of the 99 features for the detail panel
+├── pages/           base.Page and the Overview, Flows and History pages; PAGES registry
+└── widgets/         cards, breakdown bars, drop zone, flow detail panel
 ```
 
-`ensure_capture_backend()` prepends the Npcap directory to the DLL search path.
-Because `os.add_dll_directory` is process-local and NFStream spawns processes
-that import the engine before any of our code runs, the fix is propagated
-through the environment: the directory is pinned into `CIARA_PCAP_NPCAP_DIR`,
-and a `sitecustomize` bootstrap directory is prepended to `PYTHONPATH`, which
-CPython imports automatically at interpreter start-up in every descendant.
-
-To fix the machine instead, reinstall Npcap with *WinPcap API-compatible mode*,
-or delete the stale WinPcap `wpcap.dll` and `Packet.dll` from `System32` and
-`SysWOW64`. The shim then becomes a no-op.
+Pages are views over `AnalysisState`; the window performs every side effect
+([ADR 0005](adr/0005-gui-pages-are-views.md)). Adding a page is one class and
+one line in `PAGES`; see the [developer guide](developer-guide.md#add-a-page-to-the-desktop-app).
 
 ## SDK generation
 
-`scripts/non-interactive/generate-sdk.sh` dumps the schema from the application
-object, so generation is hermetic — no port to bind, no startup race, identical
-in CI. It writes the published `openapi.json` plus a temporary copy carrying one
-shim.
+`scripts/non-interactive/generate-sdk.sh` (`make sdk`) dumps the schema from
+the application object, so generation is hermetic: no port to bind, no startup
+race. The generator version is pinned in the script. It writes the published
+`openapi.json` plus a temporary copy carrying one shim.
 
 **The shim.** OpenAPI 3.1 describes an uploaded file as
 `{"type": "string", "contentMediaType": "application/octet-stream"}`, which is
-what FastAPI and Pydantic v2 correctly emit. `openapi-python-client` 0.29 only
+what FastAPI and Pydantic v2 emit. `openapi-python-client` 0.29 only
 recognises the 3.0 spelling, `{"type": "string", "format": "binary"}`. Given the
-3.1 form it silently generates a `str` field whose multipart encoder uploads the
-*file name* instead of the file's bytes, and the backend then rejects every
-upload as not a capture. `ciara_pcap_api.openapi` rewrites that one construct
-for the generator's copy only, so the published contract stays
-standards-correct. Drop the shim when the generator learns `contentMediaType`.
+3.1 form it generates a `str` field whose multipart encoder uploads the *file
+name* instead of the file's bytes. `ciara_pcap_api.openapi` rewrites that one
+construct for the generator's copy only, so the published contract stays
+standards-correct.
+
+A test (`tests/unit/test_domain.py`) fails when the committed `openapi.json`
+no longer matches the application.

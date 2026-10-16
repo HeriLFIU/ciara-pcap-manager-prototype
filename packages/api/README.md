@@ -1,17 +1,14 @@
 # ciara-pcap-api
 
-FastAPI backend. Uploads are streamed to disk and parsed by NFStream in an
-isolated worker process; the route returns `202 Accepted` with a job id.
+FastAPI backend. An upload is streamed to disk and answered at once with
+`202 Accepted` and a job id; the capture is then decoded in an isolated,
+time-limited worker process, and the flows of its inner packets are served in
+pages.
 
 ```bash
 uv run ciara-pcap-api        # equivalently: uv run python -m ciara_pcap_api
 uv run ciara-pcap-openapi    # dump the OpenAPI document
 ```
-
-Use those entry points, not `uvicorn` directly: they prepare the packet-capture
-backend before any worker process is spawned, which `uvicorn` on its own does
-not do, and the engine then fails to load on Windows hosts still carrying a
-legacy WinPcap installation.
 
 | Path                   | Contents                                                                     |
 | ---------------------- | ---------------------------------------------------------------------------- |

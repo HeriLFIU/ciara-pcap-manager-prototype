@@ -147,15 +147,17 @@ class AnalysisService:
         await self._store.save(job)
 
         try:
-            flows = await self._runner.extract(self._storage.path_for(job_id))
+            result = await self._runner.extract(
+                self._storage.path_for(job_id), source_name=job.filename
+            )
         except Exception as exc:
             logger.exception("Analysis failed for job %s", job_id)
             job.status = JobStatus.FAILED
             job.error = str(exc)
         else:
-            await self._store.set_flows(job_id, flows)
+            await self._store.set_flows(job_id, result.flows)
             job.status = JobStatus.SUCCEEDED
-            job.summary = FlowSummary.from_flows(flows)
+            job.summary = FlowSummary.from_flows(result.flows, result.report)
 
         job.finished_at = datetime.now(UTC)
         await self._store.save(job)

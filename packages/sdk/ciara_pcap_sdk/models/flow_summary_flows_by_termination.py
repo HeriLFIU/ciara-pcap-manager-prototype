@@ -6,12 +6,12 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-T = TypeVar("T", bound="FlowSummaryTopApplications")
+T = TypeVar("T", bound="FlowSummaryFlowsByTermination")
 
 
 @_attrs_define
-class FlowSummaryTopApplications:
-    """Flow count per nDPI application, highest first."""
+class FlowSummaryFlowsByTermination:
+    """Flow count per termination reason."""
 
     additional_properties: dict[str, int] = _attrs_field(init=False, factory=dict)
 
@@ -25,10 +25,10 @@ class FlowSummaryTopApplications:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        flow_summary_top_applications = cls()
+        flow_summary_flows_by_termination = cls()
 
-        flow_summary_top_applications.additional_properties = d
-        return flow_summary_top_applications
+        flow_summary_flows_by_termination.additional_properties = d
+        return flow_summary_flows_by_termination
 
     @property
     def additional_keys(self) -> list[str]:

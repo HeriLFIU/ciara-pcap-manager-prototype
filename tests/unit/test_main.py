@@ -1,151 +1,81 @@
-"""Unit tests for the application entry point and profiling target."""
-
-from __future__ import annotations
+"""Tests for the offline ``ciara-pcap-inspect`` command line."""
 
 from pathlib import Path
 
 import pytest
 
-import ciara_pcap_manager_prototype.main as app_main
-from ciara_pcap_manager_prototype.domain.flows import ExpirationReason, Flow
 from ciara_pcap_manager_prototype.main import build_parser, main
-from ciara_pcap_manager_prototype.pcap.extractor import PcapExtractionError
+from tests.support.pcap_factory import SAMPLE_EXPECTED, build_sample_capture
 
 
-def _make_dummy_flow() -> Flow:
-    """Create a minimal Flow domain instance for mocking."""
-    return Flow(
-        flow_id=1,
-        expiration_reason=ExpirationReason.IDLE_TIMEOUT,
-        src_ip="192.168.1.10",
-        src_port=12345,
-        dst_ip="10.0.0.1",
-        dst_port=80,
-        protocol=6,
-        protocol_name="TCP",
-        ip_version=4,
-        vlan_id=0,
-        first_seen_ms=1000,
-        last_seen_ms=2000,
-        duration_ms=1000,
-        bidirectional_packets=5,
-        bidirectional_bytes=500,
-        src2dst_packets=3,
-        src2dst_bytes=300,
-        dst2src_packets=2,
-        dst2src_bytes=200,
-        application_name="HTTP",
-        application_category_name="Web",
-        application_is_guessed=False,
-        application_confidence=6,
-        requested_server_name=None,
-        client_fingerprint=None,
-        server_fingerprint=None,
-        user_agent=None,
-        content_type=None,
-    )
+@pytest.fixture
+def sample(tmp_path: Path) -> Path:
+    """The synthetic INT capture."""
+    return build_sample_capture(tmp_path / "synthetic.pcap")
 
 
-def test_build_parser() -> None:
-    """Verify that the argument parser is constructed with expected options."""
-    parser = build_parser()
-    args = parser.parse_args(["--n-dissections", "10"])
-    assert args.n_dissections == 10
-
-
-def test_build_parser_fallback_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify parser falls back to resolving relative to module file."""
-    original_is_file = Path.is_file
-
-    def fake_is_file(self: Path) -> bool:
-        if self == Path("samples/synthetic.pcap"):
-            return False
-        return original_is_file(self)
-
-    monkeypatch.setattr(Path, "is_file", fake_is_file)
-    parser = build_parser()
-    assert parser is not None
-
-
-def test_main_help() -> None:
-    """Verify that --help exits cleanly."""
-    with pytest.raises(SystemExit) as exc_info:
-        main(["--help"])
-    assert exc_info.value.code == 0
-
-
-def test_main_missing_capture(tmp_path: Path) -> None:
-    """Verify that a missing capture file logs and exits with 0."""
-    missing_file = tmp_path / "nonexistent.pcap"
-    exit_code = main([str(missing_file)])
-    assert exit_code == 0
-
-
-def test_main_successful_extraction(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+def test_the_summary_counts_frames_packets_and_flows(
+    sample: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Verify that successful flow extraction returns 0."""
-    dummy_pcap = tmp_path / "test.pcap"
-    dummy_pcap.write_bytes(b"dummy-pcap-content")
+    assert main([str(sample)]) == 0
 
-    called = False
-
-    def fake_extract_success(
-        _path: Path,
-        *,
-        _n_dissections: int = 20,
-        _max_flows: int = 0,
-        **_kwargs: object,
-    ) -> list[Flow]:
-        nonlocal called
-        called = True
-        return [_make_dummy_flow()]
-
-    monkeypatch.setattr(app_main, "extract_flows", fake_extract_success)
-
-    exit_code = main([str(dummy_pcap)])
-    assert exit_code == 0
-    assert called
+    out = capsys.readouterr().out
+    assert f"frames read            {SAMPLE_EXPECTED.frames}" in out
+    assert f"inner packets decoded  {SAMPLE_EXPECTED.inner_packets}" in out
+    assert f"flows                  {SAMPLE_EXPECTED.flows}" in out
+    assert "skipped frames         1 (not_telemetry_port)" in out
 
 
-def test_main_handles_extraction_error(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+def test_inspect_prints_every_layer(
+    sample: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Verify that extraction errors are handled gracefully and return 0."""
-    dummy_pcap = tmp_path / "corrupt.pcap"
-    dummy_pcap.write_bytes(b"corrupt-data")
+    assert main([str(sample), "--inspect", "1"]) == 0
 
-    def fake_extract_error(
-        _path: Path,
-        *,
-        _n_dissections: int = 20,
-        _max_flows: int = 0,
-        **_kwargs: object,
-    ) -> list[Flow]:
-        msg = "Corrupt capture"
-        raise PcapExtractionError(msg)
-
-    monkeypatch.setattr(app_main, "extract_flows", fake_extract_error)
-
-    exit_code = main([str(dummy_pcap)])
-    assert exit_code == 0
+    out = capsys.readouterr().out
+    for layer in (
+        "OUTER",
+        "REPORT",
+        "INNER",
+        "INT",
+        "hop 1",
+        "hop latency (ns)    1500",
+    ):
+        assert layer in out
+    assert "10.1.0.10:40000 -> 93.184.216.34:443 TCP" in out
 
 
-def test_main_defaults_to_bundled_sample(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify that running with default arguments executes without error."""
+def test_inspect_names_the_reason_a_frame_is_skipped(
+    sample: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main([str(sample), "--inspect", "9"]) == 0
 
-    def fake_extract_default(
-        _path: Path,
-        *,
-        _n_dissections: int = 20,
-        _max_flows: int = 0,
-        **_kwargs: object,
-    ) -> list[Flow]:
-        return [_make_dummy_flow()]
+    assert "skipped: not_telemetry_port" in capsys.readouterr().out
 
-    monkeypatch.setattr(app_main, "extract_flows", fake_extract_default)
 
-    exit_code = main([])
-    assert exit_code == 0
+def test_csv_export(sample: Path, tmp_path: Path) -> None:
+    destination = tmp_path / "flows.csv"
+
+    assert main([str(sample), "--csv", str(destination)]) == 0
+
+    lines = destination.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1 + SAMPLE_EXPECTED.flows
+
+
+def test_a_missing_capture_fails(tmp_path: Path) -> None:
+    assert main([str(tmp_path / "absent.pcap")]) == 1
+
+
+def test_a_file_that_is_not_a_capture_fails(tmp_path: Path) -> None:
+    path = tmp_path / "notes.pcap"
+    path.write_text("hello", encoding="utf-8")
+
+    assert main([str(path)]) == 1
+    assert main([str(path), "--inspect", "1"]) == 1
+
+
+def test_the_default_capture_is_the_bundled_sample() -> None:
+    default = build_parser().parse_args([]).pcap
+
+    assert default is not None
+    assert default.name == "synthetic.pcap"
+    assert main([]) == 0
