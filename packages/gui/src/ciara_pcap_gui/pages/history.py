@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from ciara_pcap_sdk.types import Unset
-from PySide6.QtCore import QModelIndex, Signal
+from PySide6.QtCore import QModelIndex, Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -17,11 +17,15 @@ from PySide6.QtWidgets import (
 
 from ciara_pcap_gui.models import JOB_COLUMNS, ObjectTableModel
 from ciara_pcap_gui.pages.base import Page
+from ciara_pcap_gui.widgets.pill import PillDelegate
 
 if TYPE_CHECKING:
     from ciara_pcap_sdk.models import AnalysisJob
 
     from ciara_pcap_gui.state import AnalysisState
+
+
+_ROW_HEIGHT = 34
 
 
 class HistoryPage(Page):
@@ -49,9 +53,13 @@ class HistoryPage(Page):
         self.model: ObjectTableModel[AnalysisJob] = ObjectTableModel(JOB_COLUMNS, self)
 
         self.refresh_button = QPushButton("Refresh")
+        self.refresh_button.setToolTip("Reload the list from the backend (Ctrl+R)")
+        self.refresh_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.refresh_button.clicked.connect(self.refresh_requested)
         self.open_button = QPushButton("Open selected")
         self.open_button.setObjectName("PrimaryButton")
+        self.open_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.open_button.setEnabled(False)
         self.open_button.clicked.connect(self._open_selected)
         self.message = QLabel("Press Refresh to list the backend's analyses.")
         self.message.setProperty("role", "muted")
@@ -69,10 +77,21 @@ class HistoryPage(Page):
         self.table.setAlternatingRowColors(True)
         self.table.setShowGrid(False)
         self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(_ROW_HEIGHT)
+        self.table.setMouseTracking(True)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setDefaultAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
+        header.setHighlightSections(False)
+        self._pills = PillDelegate(self.table)
+        for column, spec in enumerate(self.model.columns):
+            if spec.tone is not None:
+                self.table.setItemDelegateForColumn(column, self._pills)
         self.table.doubleClicked.connect(self._on_double_click)
+        self.table.selectionModel().selectionChanged.connect(self._on_selection_changed)
 
         self.layout_root.addLayout(toolbar)
         self.layout_root.addWidget(self.table, stretch=1)
@@ -86,10 +105,12 @@ class HistoryPage(Page):
 
         """
         self.model.set_rows(jobs)
+        self._on_selection_changed()
+        noun = "analysis" if len(jobs) == 1 else "analyses"
         self.message.setText(
-            f"{len(jobs)} analyses. Double-click a succeeded one to open it."
+            f"{len(jobs)} {noun}. Double-click a succeeded one to open it."
             if jobs
-            else "The backend has no analyses yet."
+            else "The backend has no analyses yet. Open a capture to start one."
         )
 
     def set_error(self, message: str) -> None:
@@ -101,6 +122,10 @@ class HistoryPage(Page):
 
         """
         self.message.setText(message)
+
+    def _on_selection_changed(self) -> None:
+        """Allow opening only while a row is selected."""
+        self.open_button.setEnabled(self.table.selectionModel().hasSelection())
 
     def _on_double_click(self, index: QModelIndex) -> None:
         """

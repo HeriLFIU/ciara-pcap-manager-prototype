@@ -243,3 +243,25 @@ async def test_an_unparsable_body_is_reported_rather_than_returned() -> None:
     async with stub_client(handler) as client:
         with pytest.raises(ApiError):
             await get_job(client, uuid4())
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        httpx.ConnectError("All connection attempts failed"),
+        httpx.ReadTimeout("timed out"),
+    ],
+    ids=["refused", "timeout"],
+)
+async def test_an_unreachable_backend_becomes_an_api_error(
+    failure: httpx.TransportError,
+) -> None:
+    # httpx transport errors are not OSErrors: unmapped, they escaped every
+    # caller's handler and left the desktop client stuck on "Connecting…".
+    def handler(request: httpx.Request) -> httpx.Response:
+        failure.request = request
+        raise failure
+
+    async with stub_client(handler) as client:
+        with pytest.raises(ApiError, match="Cannot reach the backend"):
+            await check_health(client)

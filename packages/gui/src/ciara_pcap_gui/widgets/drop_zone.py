@@ -2,14 +2,27 @@
 
 from pathlib import Path
 
+from ciara_pcap_client import FLOW_CSV_COLUMNS
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDropEvent
-from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ciara_pcap_gui.theme import repolish
 
 #: File suffixes accepted by drag and drop.
 CAPTURE_SUFFIXES = frozenset({".pcap", ".pcapng", ".cap"})
+
+_ICON_WIDTH = 76
+_ICON_HEIGHT = 92
+_BUTTON_WIDTH = 180
+_STEP_SIZE = 22
 
 
 def capture_from_urls(paths: list[str]) -> Path | None:
@@ -28,6 +41,32 @@ def capture_from_urls(paths: list[str]) -> Path | None:
         if path.suffix.lower() in CAPTURE_SUFFIXES and path.is_file():
             return path
     return None
+
+
+def _step(number: int, text: str) -> QHBoxLayout:
+    """
+    Build one numbered line of the "how it works" list.
+
+    Args:
+        number: The step number.
+        text: What happens in that step.
+
+    Returns:
+        The row.
+
+    """
+    badge = QLabel(str(number))
+    badge.setObjectName("StepNumber")
+    badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    badge.setFixedSize(_STEP_SIZE, _STEP_SIZE)
+    label = QLabel(text)
+    label.setObjectName("StepText")
+    row = QHBoxLayout()
+    row.setSpacing(10)
+    row.addWidget(badge)
+    row.addWidget(label)
+    row.addStretch(1)
+    return row
 
 
 class DropZone(QFrame):
@@ -52,26 +91,56 @@ class DropZone(QFrame):
         self.setAcceptDrops(True)
         self.setMinimumHeight(260)
 
+        icon = QLabel("PCAP")
+        icon.setObjectName("DropIcon")
+        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon.setFixedSize(_ICON_WIDTH, _ICON_HEIGHT)
         title = QLabel("Analyse an INT telemetry capture")
         title.setObjectName("DropTitle")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hint = QLabel(
-            "Drop a .pcap or .pcapng file here, or browse for one.\n"
-            "Flows are built from the inner packets inside each telemetry report."
-        )
+        hint = QLabel("Drop a .pcap or .pcapng file anywhere on this window.")
         hint.setProperty("role", "muted")
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         browse = QPushButton("Open capture…")
         browse.setObjectName("PrimaryButton")
         browse.setCursor(Qt.CursorShape.PointingHandCursor)
+        browse.setMinimumWidth(_BUTTON_WIDTH)
         browse.clicked.connect(self.browse_requested)
+        shortcut = QLabel("or press Ctrl+O")
+        shortcut.setObjectName("ShortcutHint")
+        shortcut.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        steps_box = QWidget()
+        steps = QVBoxLayout(steps_box)
+        steps.setContentsMargins(0, 0, 0, 0)
+        steps.setSpacing(10)
+        for number, text in enumerate(
+            (
+                "The decoder unwraps each switch-to-collector telemetry report",
+                "Flows are built from the inner packets only",
+                (
+                    f"Every flow carries the {len(FLOW_CSV_COLUMNS)} features "
+                    "of the PIPELINE_V2 codebook"
+                ),
+            ),
+            start=1,
+        ):
+            steps.addLayout(_step(number, text))
 
         layout = QVBoxLayout(self)
+        layout.setSpacing(0)
         layout.addStretch(1)
+        layout.addWidget(icon, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addSpacing(20)
         layout.addWidget(title)
+        layout.addSpacing(6)
         layout.addWidget(hint)
-        layout.addSpacing(12)
+        layout.addSpacing(20)
         layout.addWidget(browse, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addSpacing(6)
+        layout.addWidget(shortcut)
+        layout.addSpacing(32)
+        layout.addWidget(steps_box, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addStretch(1)
 
     def _set_active(self, *, active: bool) -> None:

@@ -54,3 +54,13 @@ class Page(QWidget):
 
     def refresh(self) -> None:
         """Redraw the page from the shared state. Subclasses override this."""
+
+    def badge(self) -> str:
+        """
+        Return a short count shown next to the page in the sidebar.
+
+        Returns:
+            The badge text; empty hides the badge. Subclasses override this.
+
+        """
+        return ""
