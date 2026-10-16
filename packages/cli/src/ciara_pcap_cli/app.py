@@ -22,8 +22,9 @@ from ciara_pcap_client import (
     build_client,
     check_health,
     fetch_all_flows,
+    format_count,
     get_job,
-    ranked_applications,
+    write_flows_csv,
 )
 from ciara_pcap_client import list_jobs as fetch_jobs
 from ciara_pcap_sdk.models import AnalysisJob, Flow
@@ -39,7 +40,8 @@ from ciara_pcap_cli.rendering import (
 
 app = typer.Typer(
     name="ciara-pcap",
-    help="Analyse offline packet captures through the CIARA PCAP API.",
+    help="Build flows from the inner packets of INT telemetry captures, through "
+    "the CIARA PCAP API.",
     no_args_is_help=True,
     add_completion=False,
 )
@@ -58,6 +60,15 @@ ApiUrlOption = Annotated[
 JsonOption = Annotated[
     bool,
     typer.Option("--json", help="Emit machine-readable JSON instead of a table."),
+]
+CsvOption = Annotated[
+    Path | None,
+    typer.Option(
+        "--csv",
+        dir_okay=False,
+        writable=True,
+        help="Also write every flow to this file as CSV, in codebook column order.",
+    ),
 ]
 
 
@@ -93,14 +104,14 @@ def health(api_url: ApiUrlOption = DEFAULT_BASE_URL) -> None:
 
 
 @app.command()
-def analyze(
+def analyze(  # noqa: PLR0913, PLR0917 - Typer builds the options from the signature
     pcap: Annotated[
         Path,
         typer.Argument(
             exists=True,
             dir_okay=False,
             readable=True,
-            help="The .pcap or .pcapng file to analyse.",
+            help="The .pcap or .pcapng capture of INT telemetry reports.",
         ),
     ],
     api_url: ApiUrlOption = DEFAULT_BASE_URL,
@@ -112,9 +123,10 @@ def analyze(
     timeout: Annotated[
         float, typer.Option("--timeout", min=1, help="Seconds to wait for the job.")
     ] = 600.0,
+    csv_path: CsvOption = None,
 ) -> None:
     """
-    Upload a capture, wait for the analysis and print the flow metadata.
+    Upload a capture, wait for the analysis and print its flows.
 
     Args:
         pcap: The capture file to analyse.
@@ -122,9 +134,19 @@ def analyze(
         as_json: Emit JSON instead of a table.
         limit: Maximum rows to print, or 0 for all of them.
         timeout: Seconds to wait for the job to finish.
+        csv_path: Where to write every flow as CSV, if anywhere.
 
     """
-    asyncio.run(_analyze(pcap, api_url, as_json=as_json, limit=limit, timeout=timeout))
+    asyncio.run(
+        _analyze(
+            pcap,
+            api_url,
+            as_json=as_json,
+            limit=limit,
+            timeout=timeout,
+            csv_path=csv_path,
+        )
+    )
 
 
 @app.command(name="jobs")
@@ -150,6 +172,7 @@ def flows(
     limit: Annotated[
         int, typer.Option("--limit", min=0, help="Rows to print. 0 prints every flow.")
     ] = 50,
+    csv_path: CsvOption = None,
 ) -> None:
     """
     Print the flows of a job that has already been analysed.
@@ -159,9 +182,12 @@ def flows(
         api_url: Base URL of the backend.
         as_json: Emit JSON instead of a table.
         limit: Maximum rows to print, or 0 for all of them.
+        csv_path: Where to write every flow as CSV, if anywhere.
 
     """
-    asyncio.run(_flows(job_id, api_url, as_json=as_json, limit=limit))
+    asyncio.run(
+        _flows(job_id, api_url, as_json=as_json, limit=limit, csv_path=csv_path)
+    )
 
 
 async def _health(api_url: str) -> None:
@@ -180,8 +206,14 @@ async def _health(api_url: str) -> None:
         console.print(f"[green]{payload.status}[/green]  {payload.service}  {api_url}")
 
 
-async def _analyze(
-    pcap: Path, api_url: str, *, as_json: bool, limit: int, timeout: float
+async def _analyze(  # noqa: PLR0913 - keyword-only output options
+    pcap: Path,
+    api_url: str,
+    *,
+    as_json: bool,
+    limit: int,
+    timeout: float,
+    csv_path: Path | None,
 ) -> None:
     """
     Run the full analysis workflow and print the result.
@@ -192,6 +224,7 @@ async def _analyze(
         as_json: Emit JSON instead of a table.
         limit: Maximum rows to print, or 0 for all of them.
         timeout: Seconds to wait for the job to finish.
+        csv_path: Where to write every flow as CSV, if anywhere.
 
     """
     async with build_client(api_url) as client:
@@ -226,6 +259,7 @@ async def _analyze(
         _fail(f"Analysis failed: {job.error or 'the backend gave no detail'}")
 
     _render(job, extracted, as_json=as_json, limit=limit)
+    _export(extracted, csv_path, quiet=as_json)
 
 
 async def _list_jobs(api_url: str, *, as_json: bool) -> None:
@@ -252,7 +286,9 @@ async def _list_jobs(api_url: str, *, as_json: bool) -> None:
     console.print(jobs_table(jobs))
 
 
-async def _flows(job_id: UUID, api_url: str, *, as_json: bool, limit: int) -> None:
+async def _flows(
+    job_id: UUID, api_url: str, *, as_json: bool, limit: int, csv_path: Path | None
+) -> None:
     """
     Print the flows of an existing job.
 
@@ -261,6 +297,7 @@ async def _flows(job_id: UUID, api_url: str, *, as_json: bool, limit: int) -> No
         api_url: Base URL of the backend.
         as_json: Emit JSON instead of a table.
         limit: Maximum rows to print, or 0 for all of them.
+        csv_path: Where to write every flow as CSV, if anywhere.
 
     """
     async with build_client(api_url) as client:
@@ -271,6 +308,28 @@ async def _flows(job_id: UUID, api_url: str, *, as_json: bool, limit: int) -> No
             _fail(str(exc))
 
     _render(job, extracted, as_json=as_json, limit=limit)
+    _export(extracted, csv_path, quiet=as_json)
+
+
+def _export(flows: list[Flow], csv_path: Path | None, *, quiet: bool) -> None:
+    """
+    Write flows to a CSV file when one was requested.
+
+    Args:
+        flows: The flows to write.
+        csv_path: Destination file, or None to skip the export.
+        quiet: Do not print a confirmation, so JSON output stays parseable.
+
+    """
+    if csv_path is None:
+        return
+    try:
+        with csv_path.open("w", encoding="utf-8", newline="") as handle:
+            rows = write_flows_csv(flows, handle)
+    except OSError as exc:
+        _fail(f"Could not write {csv_path}: {exc}")
+    if not quiet:
+        console.print(f"[dim]Wrote {format_count(rows)} flows to {csv_path}.[/dim]")
 
 
 def _render(
@@ -304,14 +363,13 @@ def _render(
 
     shown = extracted if limit == 0 else extracted[:limit]
     console.print()
-    console.print(flows_table(shown, title=f"Flows ({len(shown)} of {len(extracted)})"))
+    shown_text, total_text = format_count(len(shown)), format_count(len(extracted))
+    console.print(flows_table(shown, title=f"Flows ({shown_text} of {total_text})"))
     if len(shown) < len(extracted):
         console.print(
-            f"[dim]Showing {len(shown)} of {len(extracted)} flows. "
-            f"Use --limit 0 for all, or --json to pipe them.[/dim]"
+            f"[dim]Showing {shown_text} of {total_text} flows. "
+            f"Use --limit 0 for all, --json to pipe them or --csv to save them.[/dim]"
         )
-    if job.summary and not ranked_applications(job.summary):
-        console.print("[dim]nDPI reported no application labels.[/dim]")
 
 
 def _fail(message: str) -> NoReturn:

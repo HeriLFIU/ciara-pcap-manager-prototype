@@ -60,12 +60,12 @@ async def test_jobs_are_listed_newest_first() -> None:
 async def test_flows_are_paged_and_report_the_full_total() -> None:
     store = InMemoryJobStore()
     job = await store.create(AnalysisJob(filename="a.pcap", size_bytes=10))
-    await store.set_flows(job.job_id, [make_flow(flow_id=i) for i in range(5)])
+    await store.set_flows(job.job_id, [make_flow(flow_segment_id=i) for i in range(5)])
 
     page, total = await store.get_flows(job.job_id, offset=1, limit=2)
 
     assert total == 5
-    assert [flow.flow_id for flow in page] == [1, 2]
+    assert [flow.flow_segment_id for flow in page] == [1, 2]
 
 
 async def test_flows_of_a_job_that_never_ran_are_empty() -> None:

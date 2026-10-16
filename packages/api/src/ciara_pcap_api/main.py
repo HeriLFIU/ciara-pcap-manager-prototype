@@ -69,8 +69,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         ),
         runner=FlowExtractionRunner(
             max_workers=settings.extraction_workers,
-            n_dissections=settings.n_dissections,
-            max_flows=settings.max_flows_per_capture,
+            options=settings.extraction_options(),
             timeout_seconds=settings.extraction_timeout_seconds,
         ),
     )
@@ -96,7 +95,7 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     app = FastAPI(
         title=resolved.project_name,
         version="0.1.0",
-        summary="Extracts bidirectional flow metadata from offline packet captures.",
+        summary="Builds flows from the inner packets of INT telemetry captures.",
         openapi_url="/api/v1/openapi.json",
         lifespan=lifespan,
         generate_unique_id_function=custom_generate_unique_id,

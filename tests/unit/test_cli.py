@@ -15,17 +15,11 @@ from uuid import UUID
 import pytest
 from ciara_pcap_cli import app as cli_module
 from ciara_pcap_cli.app import app
-from ciara_pcap_client import (
-    ApiError,
-    format_bytes,
-    format_timestamp,
-    ranked_applications,
-    value_or,
-)
+from ciara_pcap_client import ApiError
 from ciara_pcap_sdk.models import AnalysisJob, Flow
 from typer.testing import CliRunner
 
-from tests.support.factories import make_flow
+from tests.support.factories import make_flow, summary_payload
 
 JOB_ID = UUID("11111111-2222-3333-4444-555555555555")
 EXIT_FAILURE = 1
@@ -51,14 +45,7 @@ def sdk_job(status: str = "succeeded", **extra: Any) -> AnalysisJob:  # noqa: AN
         "filename": "sample.pcap",
         "size_bytes": 851,
         "created_at": "2026-09-10T12:00:00Z",
-        "summary": {
-            "flow_count": 2,
-            "packet_count": 10,
-            "byte_count": 667,
-            "first_seen_ms": 1_700_000_000_000,
-            "last_seen_ms": 1_700_000_000_090,
-            "top_applications": {"HTTP": 1, "DNS": 1},
-        },
+        "summary": summary_payload(make_flow(), make_flow(proto=17, port_a=5353)),
     } | extra
     return AnalysisJob.from_dict(payload)
 
@@ -66,9 +53,11 @@ def sdk_job(status: str = "succeeded", **extra: Any) -> AnalysisJob:  # noqa: AN
 def sdk_flows() -> list[Flow]:
     """Build two SDK flow models."""
     return [
-        Flow.from_dict(json.loads(make_flow(flow_id=0).model_dump_json())),
+        Flow.from_dict(json.loads(make_flow().model_dump_json())),
         Flow.from_dict(
-            json.loads(make_flow(flow_id=1, application_name="DNS").model_dump_json())
+            json.loads(
+                make_flow(proto=17, port_a=5353, flow_segment_id=1).model_dump_json()
+            )
         ),
     ]
 
@@ -149,8 +138,10 @@ def test_analyze_prints_a_table_of_flows(
 
     assert result.exit_code == 0
     assert "10.0.0.1:5001" in result.stdout
-    assert "HTTP" in result.stdout
-    assert "DNS" in result.stdout
+    assert "10.0.0.1:5353" in result.stdout
+    assert "UDP" in result.stdout
+    assert "INT coverage" in result.stdout
+    assert "not_telemetry_port 2" in result.stdout
 
 
 def test_analyze_emits_machine_readable_json(
@@ -163,7 +154,8 @@ def test_analyze_emits_machine_readable_json(
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     assert payload["job"]["filename"] == "sample.pcap"
-    assert [flow["flow_id"] for flow in payload["flows"]] == [0, 1]
+    assert [flow["flow_segment_id"] for flow in payload["flows"]] == [0, 1]
+    assert payload["job"]["summary"]["decode"]["inner_packets"] == 10
 
 
 def test_analyze_limit_truncates_the_table(
@@ -241,21 +233,43 @@ def test_flows_rejects_a_malformed_job_id(runner: CliRunner) -> None:
     assert result.exit_code != 0
 
 
-@pytest.mark.parametrize(
-    ("count", "expected"),
-    [(0, "0 B"), (512, "512 B"), (2048, "2.0 KB"), (5 * 1024 * 1024, "5.0 MB")],
-)
-def test_byte_formatting(count: int, expected: str) -> None:
-    assert format_bytes(count) == expected
+def test_analyze_writes_the_flows_as_csv(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, capture: Path, tmp_path: Path
+) -> None:
+    stub(monkeypatch, "analyze_capture", lambda *_, **__: (sdk_job(), sdk_flows()))
+    destination = tmp_path / "flows.csv"
+
+    result = runner.invoke(app, ["analyze", str(capture), "--csv", str(destination)])
+
+    assert result.exit_code == 0
+    header, *rows = destination.read_text(encoding="utf-8").splitlines()
+    assert header.startswith("base_flow_key,flow_id,flow_segment_id")
+    assert len(rows) == 2
+    assert "Wrote 2 flows" in result.stdout
 
 
-def test_timestamp_formatting_is_utc_with_milliseconds() -> None:
-    assert format_timestamp(1_700_000_000_090) == "2023-11-14 22:13:20.090"
+def test_flows_writes_csv_quietly_alongside_json(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    stub(monkeypatch, "get_job", lambda *_, **__: sdk_job())
+    stub(monkeypatch, "fetch_all_flows", lambda *_, **__: sdk_flows())
+    destination = tmp_path / "flows.csv"
+
+    result = runner.invoke(
+        app, ["flows", str(JOB_ID), "--json", "--csv", str(destination)]
+    )
+
+    assert result.exit_code == 0
+    json.loads(result.stdout)
+    assert destination.exists()
 
 
-def test_top_applications_of_a_summariless_job_is_empty() -> None:
-    job = sdk_job(summary={"flow_count": 0, "packet_count": 0, "byte_count": 0})
+def test_an_unwritable_csv_path_fails_cleanly(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, capture: Path, tmp_path: Path
+) -> None:
+    stub(monkeypatch, "analyze_capture", lambda *_, **__: (sdk_job(), sdk_flows()))
+    destination = tmp_path / "missing-directory" / "flows.csv"
 
-    summary = value_or(job.summary, None)
-    assert summary is not None
-    assert ranked_applications(summary) == []
+    result = runner.invoke(app, ["analyze", str(capture), "--csv", str(destination)])
+
+    assert result.exit_code == EXIT_FAILURE

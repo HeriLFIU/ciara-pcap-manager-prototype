@@ -9,6 +9,15 @@ refreshed with `copier update`. Treat the configuration files as the primary
 source of truth. See [§9](#9-this-project-and-its-copier-template) before
 changing anything the template owns.
 
+**What the project does.** It builds bidirectional flows from the *inner*
+packets of INT telemetry captures: each captured frame is a switch-to-collector
+report (outer UDP to port 5900) wrapping the user packet the switch observed
+and its INT metadata. Flows are built from the inner packet only, with the
+features of the PIPELINE_V2 codebook (`docs/reference/feature_codebook.md`).
+Read [docs/how-it-works.md](docs/how-it-works.md) before changing the decoder
+or the flow generator, and [docs/flow-generation.md](docs/flow-generation.md)
+before changing a feature.
+
 Human-facing documentation lives in [README.md](README.md) and [docs/](docs).
 This file exists because several of those workflows are **interactive by design**
 and will hang or corrupt state when driven by an agent. Everything below is the
@@ -33,6 +42,24 @@ ______________________________________________________________________
 1. **Never edit `.copier-answers.yml` by hand.** It is a factual record of what
    generated this project. Editing it corrupts every future `copier update`.
    See [§9](#9-this-project-and-its-copier-template).
+1. **Test first.** Write the failing test, then the code. Build capture
+   fixtures with `tests/support/pcap_factory.py`; never commit opaque binary
+   fixtures.
+1. **Never weaken a gate to make it pass.** No lowered thresholds, blanket
+   ignores, unexplained `noqa` or skipped tests. A `noqa` names its rule and
+   says why. Fix the cause or stop and explain.
+1. **Never hand-edit generated files.** `openapi.json` and `packages/sdk/`
+   come from `make sdk`; `samples/synthetic.pcap` from `make sample`;
+   `uv.lock` from `uv lock`.
+1. **Verify facts against the source, not memory.** Header layouts cite the
+   P4.org specifications; claims about the data cite a measurement or a test;
+   behaviour that must match the Wireshark Lua dissector is checked with
+   `make lua-parity`.
+1. **Every review finding becomes a check:** a test, a lint rule, or a line
+   in the docs that would have caught it.
+1. **The codebook is the flow contract.** The `Flow` model, the client CSV
+   columns and section 6 of the codebook must agree; `tests/unit/test_export.py`
+   enforces it. Record any interpretation in `docs/flow-generation.md` §5.
 
 ______________________________________________________________________
 
@@ -49,13 +76,20 @@ ciara-pcap-prototype/
 │   ├── ci.allfiles.yml          # Alternative CI that lints the WHOLE repo
 │   └── prek.unused.ntoml        # Abandoned prek.toml port of the hook config
 ├── docs/
+│   ├── how-it-works.md          # Start here: packets, layers, flows, interfaces
+│   ├── adr/                     # Architecture decision records
+│   ├── reference/               # The PIPELINE_V2 feature codebook
+│   ├── images/                  # Screenshots used by the docs
 │   ├── common_workflows/        # Task-oriented guides
 │   └── concepts/                # Conventional Commits, SemVer, Boy Scout Rule
+├── packages/                    # api, sdk (generated), client, cli, gui
+├── samples/                     # The 50,000-frame sample and the synthetic one
+├── tools/wireshark/             # The team's Lua dissector, kept as delivered
 ├── scripts/
 │   ├── interactive/             # Agents must NOT run these (bash `select`)
 │   └── non-interactive/         # Safe for agents and CI
-├── src/ciara_pcap_manager_prototype/          # Application source
-├── tests/                       # conftest.py + tests/unit/
+├── src/ciara_pcap_manager_prototype/          # Core: reader, INT decoder, flows
+├── tests/                       # unit/, integration/, support/ (fixture builders)
 ├── .copier-answers.yml          # Template link + answers — NEVER hand-edit
 ├── .gitattributes               # Forces eol=lf everywhere, including Windows
 ├── .pre-commit-config.yaml      # The heart of the repo: the prek hooks
@@ -189,8 +223,7 @@ sockets may be created, but `connect()` is restricted to loopback. POSIX keeps
 the stricter behaviour.
 
 Consequence for test authors: **a test that asserts network blocking must accept
-both failure modes.** `tests/unit/test_parser.py::test_network_isolation_is_active`
-does this by asserting `pytest.raises(RuntimeError)` — the common base class of
+both failure modes.** Do it by asserting `pytest.raises(RuntimeError)` — the common base class of
 the creation-blocked error on POSIX and the connect-blocked error on Windows. Do
 not narrow it to a platform-specific exception type.
 
@@ -340,7 +373,13 @@ ______________________________________________________________________
 
 ## 6. Running the quality gates
 
-Run these before declaring work finished, in rough order of cost:
+`make verify` runs the whole local gate in one go — every hook on every file,
+the full suite with coverage, and a benchmark smoke run. CI may be unavailable
+(for example when the account's Actions minutes are used up); a pull request is
+ready when `make verify` passes locally. If you touched the decoder, also run
+`make lua-parity`.
+
+The individual steps, in rough order of cost:
 
 ```bash
 uv run ruff format .                       # format

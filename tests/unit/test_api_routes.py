@@ -2,7 +2,7 @@
 Tests for the HTTP surface.
 
 The application is exercised through an in-process ASGI transport with a stub
-extractor, so these tests never open a socket and never load NFStream.
+extractor, so these tests never open a socket and never parse a capture.
 """
 
 import asyncio
@@ -18,8 +18,9 @@ from ciara_pcap_api.core.storage import CaptureStorage
 from ciara_pcap_api.main import create_app
 from ciara_pcap_api.services.analysis import AnalysisService
 
-from ciara_pcap_manager_prototype.domain.flows import Flow
-from ciara_pcap_manager_prototype.jobs import InMemoryJobStore
+from ciara_pcap_manager_prototype.domain.flows import DecodeReport, Flow
+from ciara_pcap_manager_prototype.jobs.memory import InMemoryJobStore
+from ciara_pcap_manager_prototype.pcap.extractor import ExtractionResult
 from tests.support.factories import make_flow
 
 PCAP_MAGIC = b"\xd4\xc3\xb2\xa1"
@@ -32,22 +33,36 @@ UNSUPPORTED_MEDIA_TYPE = 415
 UNPROCESSABLE = 422
 
 
+REPORT = DecodeReport(
+    frames_read=12,
+    inner_packets=10,
+    packets_with_int=10,
+    packets_with_int_hops=9,
+    packets_out_of_order=1,
+    packets_late=0,
+    packets_over_flow_cap=0,
+    skipped={"not_telemetry_port": 2},
+)
+
+
 class StubExtractor:
-    """Returns canned flows, or raises, without touching NFStream."""
+    """Returns canned flows, or raises, without parsing anything."""
 
     def __init__(
         self, flows: list[Flow] | None = None, error: str | None = None
     ) -> None:
         self.flows = flows if flows is not None else []
         self.error = error
-        self.calls: list[Path] = []
+        self.calls: list[tuple[Path, str | None]] = []
 
-    async def extract(self, pcap_path: Path) -> list[Flow]:
+    async def extract(
+        self, pcap_path: Path, *, source_name: str | None = None
+    ) -> ExtractionResult:
         """Record the call and return the canned outcome."""
-        self.calls.append(pcap_path)
+        self.calls.append((pcap_path, source_name))
         if self.error is not None:
             raise RuntimeError(self.error)
-        return list(self.flows)
+        return ExtractionResult(flows=list(self.flows), report=REPORT)
 
     def shutdown(self, *, wait: bool = True) -> None:
         """Accept the shutdown call; there is nothing to release."""
@@ -56,9 +71,7 @@ class StubExtractor:
 @pytest.fixture
 def extractor() -> StubExtractor:
     """A stub extractor returning two flows."""
-    return StubExtractor(
-        [make_flow(flow_id=0), make_flow(flow_id=1, application_name="DNS")]
-    )
+    return StubExtractor([make_flow(), make_flow(flow_segment_id=1, proto=17)])
 
 
 @pytest.fixture
@@ -126,6 +139,8 @@ async def test_a_successful_job_gains_a_summary(client: httpx.AsyncClient) -> No
 
     assert body["status"] == "succeeded"
     assert body["summary"]["flow_count"] == 2
+    assert body["summary"]["flows_by_protocol"] == {"TCP": 1, "UDP": 1}
+    assert body["summary"]["decode"] == REPORT.model_dump()
     assert body["error"] is None
 
 
@@ -142,7 +157,8 @@ async def test_flows_are_paginated(client: httpx.AsyncClient) -> None:
     assert page["total"] == 2
     assert page["offset"] == 1
     assert page["limit"] == 1
-    assert [flow["flow_id"] for flow in page["items"]] == [1]
+    assert [flow["flow_segment_id"] for flow in page["items"]] == [1]
+    assert len(page["items"][0]) == 99
 
 
 async def test_upload_is_passed_to_the_extractor_as_a_real_file(
@@ -152,7 +168,9 @@ async def test_upload_is_passed_to_the_extractor_as_a_real_file(
     await await_terminal(client, job_id)
 
     assert len(extractor.calls) == 1
-    assert extractor.calls[0].read_bytes() == CAPTURE_BYTES
+    stored, source_name = extractor.calls[0]
+    assert stored.read_bytes() == CAPTURE_BYTES
+    assert source_name == "sample.pcap"
 
 
 async def test_a_non_capture_upload_is_refused(client: httpx.AsyncClient) -> None:

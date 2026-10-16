@@ -11,6 +11,14 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from ciara_pcap_manager_prototype.flows.generator import (
+    DEFAULT_ACTIVE_TIMEOUT_SECONDS,
+    DEFAULT_IDLE_TIMEOUT_SECONDS,
+)
+from ciara_pcap_manager_prototype.flows.reorder import DEFAULT_REORDER_WINDOW_SECONDS
+from ciara_pcap_manager_prototype.pcap.extractor import ExtractionOptions
+from ciara_pcap_manager_prototype.telemetry.decoder import DEFAULT_TELEMETRY_PORT
+
 
 class CoreSettings(BaseSettings):
     """Settings for capture storage and flow extraction."""
@@ -39,10 +47,27 @@ class CoreSettings(BaseSettings):
         ge=1,
         description="Worker processes available for concurrent extractions.",
     )
-    n_dissections: int = Field(
-        default=20,
+    telemetry_udp_port: int = Field(
+        default=DEFAULT_TELEMETRY_PORT,
+        ge=1,
+        le=65535,
+        description="Outer UDP destination port that carries telemetry reports.",
+    )
+    flow_idle_timeout_seconds: float = Field(
+        default=DEFAULT_IDLE_TIMEOUT_SECONDS,
+        gt=0,
+        description="Close a flow segment after this long without a packet.",
+    )
+    flow_active_timeout_seconds: float = Field(
+        default=DEFAULT_ACTIVE_TIMEOUT_SECONDS,
+        gt=0,
+        description="Close a flow segment that has lasted longer than this.",
+    )
+    reorder_window_seconds: float = Field(
+        default=DEFAULT_REORDER_WINDOW_SECONDS,
         ge=0,
-        description="Packets per flow handed to nDPI. Zero disables it.",
+        description="Capture time to buffer packets for, to restore time order "
+        "across interleaved report streams. Zero keeps file order.",
     )
     max_flows_per_capture: int = Field(
         default=0,
@@ -54,6 +79,22 @@ class CoreSettings(BaseSettings):
         gt=0,
         description="Kill an extraction worker that has not finished in this long.",
     )
+
+    def extraction_options(self) -> ExtractionOptions:
+        """
+        Collect the settings that change how a capture is decoded.
+
+        Returns:
+            The options to hand to the extractor.
+
+        """
+        return ExtractionOptions(
+            telemetry_port=self.telemetry_udp_port,
+            idle_timeout_seconds=self.flow_idle_timeout_seconds,
+            active_timeout_seconds=self.flow_active_timeout_seconds,
+            reorder_window_seconds=self.reorder_window_seconds,
+            max_flows=self.max_flows_per_capture,
+        )
 
     def ensure_storage_dir(self) -> Path:
         """

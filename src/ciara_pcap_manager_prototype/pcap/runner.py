@@ -1,13 +1,14 @@
 """
-Bridge between the asyncio world and CPU-bound NFStream extraction.
+Bridge between the asyncio world and CPU-bound flow extraction.
 
 Extraction runs in a dedicated worker process per capture, which keeps four
 promises:
 
-* the ASGI event loop never blocks while a capture is parsed;
-* a crash inside the native nDPI engine is reported, not inherited;
-* a capture that makes NFStream hang is killed rather than pinning a job in
-  ``running`` for ever;
+* the ASGI event loop never blocks while a capture is parsed -- decoding is
+  pure Python, so a thread would still hold the GIL for most of the parse;
+* a crash while parsing a hostile capture is reported, not inherited;
+* a capture that makes the parser run away is killed rather than pinning a job
+  in ``running`` for ever;
 * the call site is already shaped like a task queue, so replacing this runner
   with Celery or arq later is a change of implementation, not of contract.
 
@@ -22,10 +23,11 @@ import multiprocessing
 import queue
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, Protocol
 
-from ciara_pcap_manager_prototype.pcap.compat import ensure_capture_backend
 from ciara_pcap_manager_prototype.pcap.extractor import (
+    ExtractionOptions,
+    ExtractionResult,
     PcapExtractionError,
     extract_flows,
 )
@@ -33,8 +35,6 @@ from ciara_pcap_manager_prototype.pcap.extractor import (
 if TYPE_CHECKING:
     from multiprocessing.context import SpawnProcess
     from multiprocessing.queues import Queue
-
-    from ciara_pcap_manager_prototype.domain.flows import Flow
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +48,8 @@ _DRAIN_SECONDS = 1.0
 def _worker(
     result_queue: "Queue[tuple[str, object]]",
     pcap_path: Path,
-    n_dissections: int,
-    max_flows: int,
+    source_name: str | None,
+    options: ExtractionOptions,
 ) -> None:
     """
     Extract flows in a worker process and post the outcome back.
@@ -57,19 +57,16 @@ def _worker(
     Args:
         result_queue: Channel used to return the outcome to the parent.
         pcap_path: Capture to parse.
-        n_dissections: Packets per flow handed to nDPI.
-        max_flows: Cap on flows produced. Zero means no limit.
+        source_name: Original file name, recorded as the packets' source.
+        options: Decoding and segmentation knobs.
 
     """
-    ensure_capture_backend()
     try:
-        flows = extract_flows(
-            pcap_path, n_dissections=n_dissections, max_flows=max_flows
-        )
+        result = extract_flows(pcap_path, source_name=source_name, options=options)
     except Exception as exc:  # noqa: BLE001 - the parent turns this into a job error
         result_queue.put(("error", f"{type(exc).__name__}: {exc}"))
     else:
-        result_queue.put(("ok", flows))
+        result_queue.put(("ok", result))
 
 
 class FlowExtractor(Protocol):
@@ -78,18 +75,21 @@ class FlowExtractor(Protocol):
 
     The API depends on this rather than on :class:`FlowExtractionRunner`, so a
     Celery-backed or arq-backed implementation is a drop-in replacement and a
-    test can supply a stub without touching NFStream.
+    test can supply a stub without parsing a capture.
     """
 
-    async def extract(self, pcap_path: Path) -> list["Flow"]:
+    async def extract(
+        self, pcap_path: Path, *, source_name: str | None = None
+    ) -> ExtractionResult:
         """
         Extract the flows of a capture.
 
         Args:
             pcap_path: Path to the capture file to parse.
+            source_name: Original file name, recorded as the packets' source.
 
         Returns:
-            Every flow the capture produced.
+            The capture's flows and decode report.
 
         """
         ...
@@ -112,8 +112,7 @@ class FlowExtractionRunner:
         self,
         *,
         max_workers: int = 2,
-        n_dissections: int = 20,
-        max_flows: int = 0,
+        options: ExtractionOptions | None = None,
         timeout_seconds: float = 300.0,
     ) -> None:
         """
@@ -121,46 +120,51 @@ class FlowExtractionRunner:
 
         Args:
             max_workers: Number of extractions allowed to run concurrently.
-            n_dissections: Packets per flow handed to nDPI.
-            max_flows: Cap on flows per capture. Zero means no limit.
+            options: Decoding and segmentation knobs passed to every worker.
             timeout_seconds: Kill a worker that has not finished in this long.
 
         """
-        self._n_dissections = n_dissections
-        self._max_flows = max_flows
+        self._options = options or ExtractionOptions()
         self._timeout = timeout_seconds
         self._semaphore = asyncio.Semaphore(max_workers)
         # "spawn" everywhere rather than the platform default: forking a process
-        # that already owns an event loop and native threads is unsafe, and
-        # NFStream starts metering processes of its own on top of this one.
+        # that already owns an event loop and native threads is unsafe.
         self._context = multiprocessing.get_context("spawn")
 
-    async def extract(self, pcap_path: Path) -> list["Flow"]:
+    async def extract(
+        self, pcap_path: Path, *, source_name: str | None = None
+    ) -> ExtractionResult:
         """
         Extract the flows of a capture without blocking the event loop.
 
         Args:
             pcap_path: Path to the capture file to parse.
+            source_name: Original file name, recorded as the packets' source.
 
         Returns:
-            Every flow NFStream produced for the capture.
+            The capture's flows and decode report.
 
         Raises:
             PcapExtractionError: If the worker failed, timed out or died.
 
         """
         async with self._semaphore:
-            return await asyncio.to_thread(self._extract_blocking, pcap_path)
+            return await asyncio.to_thread(
+                self._extract_blocking, pcap_path, source_name
+            )
 
-    def _extract_blocking(self, pcap_path: Path) -> list["Flow"]:
+    def _extract_blocking(
+        self, pcap_path: Path, source_name: str | None
+    ) -> ExtractionResult:
         """
         Run one extraction in a worker process and wait for its result.
 
         Args:
             pcap_path: Path to the capture file to parse.
+            source_name: Original file name, recorded as the packets' source.
 
         Returns:
-            Every flow NFStream produced for the capture.
+            The capture's flows and decode report.
 
         Raises:
             PcapExtractionError: If the worker failed, timed out or died.
@@ -169,7 +173,7 @@ class FlowExtractionRunner:
         result_queue: Queue[tuple[str, object]] = self._context.Queue()
         process: SpawnProcess = self._context.Process(
             target=_worker,
-            args=(result_queue, pcap_path, self._n_dissections, self._max_flows),
+            args=(result_queue, pcap_path, source_name, self._options),
             daemon=False,
         )
         process.start()
@@ -184,10 +188,13 @@ class FlowExtractionRunner:
         if kind == "error":
             msg = str(payload)
             raise PcapExtractionError(msg)
-        if not isinstance(payload, list):
-            msg = f"Extraction worker returned {type(payload).__name__}, not a list."
+        if not isinstance(payload, ExtractionResult):
+            msg = (
+                f"Extraction worker returned {type(payload).__name__}, "
+                "not an ExtractionResult."
+            )
             raise PcapExtractionError(msg)
-        return cast("list[Flow]", payload)
+        return payload
 
     def _await_outcome(
         self,
@@ -213,8 +220,17 @@ class FlowExtractionRunner:
         deadline = time.monotonic() + self._timeout
 
         while True:
+            # Every wait is capped by the time left, so a deadline shorter than
+            # one poll interval is still enforced.
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                msg = (
+                    f"Extraction of {pcap_path.name} exceeded the "
+                    f"{self._timeout:g}s limit and was cancelled."
+                )
+                raise PcapExtractionError(msg)
             try:
-                return result_queue.get(timeout=_POLL_SECONDS)
+                return result_queue.get(timeout=min(_POLL_SECONDS, remaining))
             except queue.Empty:
                 pass
 
@@ -226,17 +242,9 @@ class FlowExtractionRunner:
                 except queue.Empty:
                     msg = (
                         f"Extraction worker for {pcap_path.name} exited with code "
-                        f"{process.exitcode} without returning a result. On Windows "
-                        "this usually means the Npcap runtime could not be loaded."
+                        f"{process.exitcode} without returning a result."
                     )
                     raise PcapExtractionError(msg) from None
-
-            if time.monotonic() >= deadline:
-                msg = (
-                    f"Extraction of {pcap_path.name} exceeded the "
-                    f"{self._timeout:.0f}s limit and was cancelled."
-                )
-                raise PcapExtractionError(msg)
 
     @staticmethod
     def _reap(process: "SpawnProcess") -> None:
