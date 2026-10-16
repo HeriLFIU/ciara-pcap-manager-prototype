@@ -82,7 +82,15 @@ everything else still runs.
    `main_window.py`; pages never make network calls. `HistoryPage` is the
    example.
 1. Style with object names defined in `theme.py` (`Card`, `PrimaryButton`,
-   `SectionTitle`, `role="muted"`…), not inline stylesheets.
+   `SectionTitle`, `role="muted"`…), not inline stylesheets. Colour a
+   categorical value with a `Tone` from `tones.py`: a `Pill` label, a
+   `PillDelegate` on a table column whose `Column` has a `tone`, or a
+   breakdown bar. A new colour token needs its contrast pairs in
+   `tests/unit/test_gui_window.py`.
+1. Do not add descendant rules such as `QFrame#Card QLabel { … }` to the
+   stylesheet: they outrank a label's own `QLabel#Name` rule and erase its
+   background. Keep each `border-radius` under half the widget's height; Qt
+   ignores a larger one and draws square corners.
 1. Test it in `tests/unit/test_gui_window.py`.
 
 ### Change the API or a model

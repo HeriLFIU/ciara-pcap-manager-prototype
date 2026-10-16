@@ -22,11 +22,13 @@ from ciara_pcap_client import (
     build_client,
     check_health,
     fetch_all_flows,
+    format_bytes,
     format_count,
     get_job,
     list_jobs,
     write_flows_csv,
 )
+from ciara_pcap_sdk.models import Flow
 from PySide6.QtCore import QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QAction,
@@ -75,6 +77,12 @@ CSV_FILTER = "CSV files (*.csv);;All files (*)"
 SETTING_API_URL = "api_url"
 SETTING_THEME = "theme"
 SETTING_GEOMETRY = "geometry"
+
+_SIDEBAR_WIDTH = 232
+_BRAND_MARK = 38
+_INDICATOR_WIDTH = 3
+_INDICATOR_HEIGHT = 18
+_CAPTURE_NAME_WIDTH = 176
 
 
 class MainWindow(QMainWindow):
@@ -129,6 +137,7 @@ class MainWindow(QMainWindow):
         geometry = self.settings.value(SETTING_GEOMETRY)
         if geometry is not None:
             self.restoreGeometry(geometry)  # pyright: ignore[reportArgumentType]
+        self._update_theme_button()
 
         self.show_page(0)
         self.set_status("Ready. Open a capture of INT telemetry reports to begin.")
@@ -152,8 +161,16 @@ class MainWindow(QMainWindow):
         self.api_url.setMinimumWidth(240)
         self.api_url.editingFinished.connect(self._on_api_url_edited)
         self.api_url.editingFinished.connect(self._on_check_backend)
-        self.backend_chip = QLabel("● Backend unknown")
+        self.api_url.setObjectName("HeaderUrl")
+        self.backend_chip = QPushButton("● Backend unknown")
         self.backend_chip.setObjectName("Chip")
+        self.backend_chip.setToolTip("Check the connection again")
+        self.backend_chip.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.backend_chip.clicked.connect(self._on_check_backend)
+        self.theme_button = QPushButton()
+        self.theme_button.setObjectName("GhostButton")
+        self.theme_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.theme_button.clicked.connect(self.toggle_theme)
         self.open_button = QPushButton("Open capture…")
         self.open_button.setObjectName("PrimaryButton")
         self.open_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -167,6 +184,8 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.nav = QButtonGroup(self)
         self.nav.setExclusive(True)
+        self.nav_badges: list[QLabel] = []
+        self._nav_indicators: list[QFrame] = []
         self.progress = QProgressBar()
         self.progress.setMaximumWidth(220)
         self.progress.setVisible(False)
@@ -224,40 +243,119 @@ class MainWindow(QMainWindow):
         """
         sidebar = QFrame()
         sidebar.setObjectName("Sidebar")
-        sidebar.setFixedWidth(208)
+        sidebar.setFixedWidth(_SIDEBAR_WIDTH)
         side = QVBoxLayout(sidebar)
-        side.setContentsMargins(0, 18, 0, 14)
-        side.setSpacing(2)
-        brand = QLabel("CIARA")
-        brand.setObjectName("Brand")
-        caption = QLabel("INT flow analyzer")
-        caption.setObjectName("BrandCaption")
-        for label in (brand, caption):
-            label.setContentsMargins(18, 0, 18, 0)
-            side.addWidget(label)
-        side.addSpacing(22)
+        side.setContentsMargins(12, 20, 12, 16)
+        side.setSpacing(4)
+        side.addLayout(self._build_brand())
+        side.addSpacing(26)
+        section = QLabel("WORKSPACE")
+        section.setObjectName("SidebarSection")
+        section.setContentsMargins(12, 0, 0, 4)
+        side.addWidget(section)
 
         for position, page in enumerate(self.pages):
             self.stack.addWidget(page)
-            button = QPushButton(page.title)
-            button.setObjectName("NavButton")
-            button.setCheckable(True)
-            button.setCursor(Qt.CursorShape.PointingHandCursor)
-            button.setToolTip(f"{page.subtitle} (Ctrl+{position + 1})")
-            self.nav.addButton(button, position)
-            side.addWidget(button)
+            side.addWidget(self._nav_button(position, page))
         self.nav.idClicked.connect(self.show_page)
         side.addStretch(1)
+        side.addWidget(self._build_capture_card())
+        side.addSpacing(12)
         footer = QLabel(
             "Flows use the inner packets only; the outer report envelope is "
             "decoded, checked and discarded."
         )
         footer.setObjectName("SidebarFooter")
         footer.setWordWrap(True)
-        footer.setContentsMargins(18, 0, 18, 0)
+        footer.setContentsMargins(8, 0, 8, 0)
         side.addWidget(footer)
 
         return sidebar
+
+    def _build_brand(self) -> QHBoxLayout:
+        """
+        Build the logo mark and the product name.
+
+        Returns:
+            The brand row.
+
+        """
+        mark = QLabel("C")
+        mark.setObjectName("BrandMark")
+        mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        mark.setFixedSize(_BRAND_MARK, _BRAND_MARK)
+        brand = QLabel("CIARA")
+        brand.setObjectName("Brand")
+        caption = QLabel("INT flow analyzer")
+        caption.setObjectName("BrandCaption")
+        names = QVBoxLayout()
+        names.setSpacing(0)
+        names.addWidget(brand)
+        names.addWidget(caption)
+        row = QHBoxLayout()
+        row.setContentsMargins(8, 0, 0, 0)
+        row.setSpacing(10)
+        row.addWidget(mark)
+        row.addLayout(names, stretch=1)
+        return row
+
+    def _nav_button(self, position: int, page: Page) -> QPushButton:
+        """
+        Build one sidebar entry with its active indicator and count badge.
+
+        Args:
+            position: Position of the page in ``PAGES``.
+            page: The page.
+
+        Returns:
+            The checkable button, registered in the navigation group.
+
+        """
+        button = QPushButton(page.title)
+        button.setObjectName("NavButton")
+        button.setCheckable(True)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setToolTip(f"{page.subtitle} (Ctrl+{position + 1})")
+        indicator = QFrame()
+        indicator.setObjectName("NavIndicator")
+        indicator.setFixedSize(_INDICATOR_WIDTH, _INDICATOR_HEIGHT)
+        badge = QLabel()
+        badge.setObjectName("NavBadge")
+        badge.setVisible(False)
+        inner = QHBoxLayout(button)
+        inner.setContentsMargins(0, 0, 10, 0)
+        inner.addWidget(indicator, alignment=Qt.AlignmentFlag.AlignVCenter)
+        inner.addStretch(1)
+        inner.addWidget(badge, alignment=Qt.AlignmentFlag.AlignVCenter)
+        self.nav.addButton(button, position)
+        self.nav_badges.append(badge)
+        self._nav_indicators.append(indicator)
+        return button
+
+    def _build_capture_card(self) -> QFrame:
+        """
+        Build the sidebar card naming the analysis on screen.
+
+        Returns:
+            The card, hidden until an analysis is loaded.
+
+        """
+        self.capture_card = QFrame()
+        self.capture_card.setObjectName("CaptureCard")
+        self.capture_card.setVisible(False)
+        heading = QLabel("LOADED CAPTURE")
+        heading.setObjectName("SidebarSection")
+        self.capture_name = QLabel()
+        self.capture_name.setObjectName("CaptureName")
+        self.capture_meta = QLabel()
+        self.capture_meta.setObjectName("CaptureMeta")
+        column = QVBoxLayout(self.capture_card)
+        column.setContentsMargins(12, 10, 12, 12)
+        column.setSpacing(3)
+        column.addWidget(heading)
+        column.addWidget(self.capture_name)
+        column.addWidget(self.capture_meta)
+        return self.capture_card
 
     def _build_header(self) -> QFrame:
         """
@@ -270,15 +368,17 @@ class MainWindow(QMainWindow):
         header = QFrame()
         header.setObjectName("HeaderBar")
         top = QHBoxLayout(header)
-        top.setContentsMargins(24, 14, 24, 14)
+        top.setContentsMargins(28, 16, 24, 16)
+        top.setSpacing(10)
         titles = QVBoxLayout()
-        titles.setSpacing(0)
+        titles.setSpacing(2)
         titles.addWidget(self.page_title)
         titles.addWidget(self.page_subtitle)
         top.addLayout(titles, stretch=1)
         center = Qt.AlignmentFlag.AlignVCenter
         top.addWidget(self.backend_chip, alignment=center)
         top.addWidget(self.api_url, alignment=center)
+        top.addWidget(self.theme_button, alignment=center)
         top.addWidget(self.open_button, alignment=center)
 
         return header
@@ -380,6 +480,8 @@ class MainWindow(QMainWindow):
             page.export_requested.connect(self._on_export)
         self.history.refresh_requested.connect(self._on_refresh_history)
         self.history.job_activated.connect(self._on_open_job)
+        self.overview.flows_requested.connect(self._on_flows_requested)
+        self.overview.flow_activated.connect(self._on_flow_activated)
         self.overview.drop_zone.capture_dropped.connect(self._on_capture_dropped)
         self.capture_requested.connect(self._on_capture_dropped)
         self.state.analysis_changed.connect(self._on_analysis_changed)
@@ -397,6 +499,9 @@ class MainWindow(QMainWindow):
         page = self.pages[index]
         self.stack.setCurrentWidget(page)
         self.nav.button(index).setChecked(True)
+        for position, indicator in enumerate(self._nav_indicators):
+            indicator.setProperty("active", "true" if position == index else "false")
+            repolish(indicator)
         self.page_title.setText(page.title)
         self.page_subtitle.setText(page.subtitle)
 
@@ -444,6 +549,16 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if isinstance(app, QApplication):
             apply_theme(app, self.theme)
+        self._update_theme_button()
+
+    def _update_theme_button(self) -> None:
+        """Label the header button with the theme it switches to."""
+        if self.theme == ThemeMode.LIGHT:
+            self.theme_button.setText("☾  Dark")
+            self.theme_button.setToolTip("Switch to the dark theme (Ctrl+T)")
+        else:
+            self.theme_button.setText("☀  Light")
+            self.theme_button.setToolTip("Switch to the light theme (Ctrl+T)")
 
     def _set_busy(self, *, busy: bool) -> None:
         """
@@ -464,9 +579,52 @@ class MainWindow(QMainWindow):
             self.progress.setRange(0, 0)
 
     def _on_analysis_changed(self) -> None:
-        """Enable the export once flows are loaded."""
+        """Enable the export, and refresh the sidebar, once flows are loaded."""
         has_flows = bool(self.state.flows)
         self.export_action.setEnabled(has_flows and not self._busy)
+        for page, badge in zip(self.pages, self.nav_badges, strict=True):
+            text = page.badge()
+            badge.setText(text)
+            badge.setVisible(bool(text))
+        job = self.state.job
+        self.capture_card.setVisible(job is not None)
+        if job is not None:
+            # A capture name has no spaces to wrap at: elide it in the middle,
+            # where the shared prefix and the extension both stay readable.
+            self.capture_name.setText(
+                self.capture_name.fontMetrics().elidedText(
+                    job.filename, Qt.TextElideMode.ElideMiddle, _CAPTURE_NAME_WIDTH
+                )
+            )
+            self.capture_name.setToolTip(job.filename)
+            self.capture_meta.setText(
+                f"{format_count(len(self.state.flows))} flows · "
+                f"{format_bytes(job.size_bytes)}"
+            )
+
+    def _on_flows_requested(self, text: str, protocol: str) -> None:
+        """
+        Show the flow browser filtered as another page asked.
+
+        Args:
+            text: The search text.
+            protocol: A protocol label, or empty for every protocol.
+
+        """
+        self.show_page(self.pages.index(self.flows))
+        self.flows.apply_filter(text, protocol)
+
+    def _on_flow_activated(self, flow: object) -> None:
+        """
+        Show one flow in the flow browser.
+
+        Args:
+            flow: The SDK flow another page asked for.
+
+        """
+        self.show_page(self.pages.index(self.flows))
+        if isinstance(flow, Flow):
+            self.flows.reveal(flow)
 
     def _url(self) -> str:
         """

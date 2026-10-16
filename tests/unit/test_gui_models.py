@@ -16,6 +16,7 @@ from ciara_pcap_gui.models import (
     JOB_COLUMNS,
     OBJECT_ROLE,
     SORT_ROLE,
+    TONE_ROLE,
     FlowFilterProxy,
     FlowTableModel,
     ObjectTableModel,
@@ -123,6 +124,32 @@ def test_sorting_uses_raw_values(model: FlowTableModel) -> None:
     assert proxy.data(proxy.index(0, column)) == "4.0 KB"
 
 
+@pytest.mark.parametrize(
+    ("overrides", "header", "tone"),
+    [
+        ({}, "Proto", "accent"),
+        ({"proto": 17}, "Proto", "secondary"),
+        ({"proto": 1}, "Proto", "neutral"),
+        ({"termination_reason": "tcp_fin_both"}, "Ended by", "success"),
+        ({"termination_reason": "tcp_rst"}, "Ended by", "danger"),
+        ({"termination_reason": "active_timeout"}, "Ended by", "warning"),
+        ({"termination_reason": "end_of_input"}, "Ended by", "neutral"),
+        ({}, "Packets", None),
+    ],
+)
+def test_categorical_cells_publish_a_tone(
+    qt_app: QCoreApplication,  # noqa: ARG001 - Qt needs the app alive
+    overrides: dict[str, object],
+    header: str,
+    tone: str | None,
+) -> None:
+    table = FlowTableModel()
+    table.set_rows([sdk_flow(**overrides)])
+    column = [c.header for c in FLOW_COLUMNS].index(header)
+
+    assert table.data(table.index(0, column), TONE_ROLE) == tone
+
+
 def test_the_job_model(qt_app: QCoreApplication) -> None:  # noqa: ARG001 - Qt needs the app alive
     job = AnalysisJob.from_dict(
         {
@@ -148,6 +175,7 @@ def test_the_job_model(qt_app: QCoreApplication) -> None:  # noqa: ARG001 - Qt n
         "1",
         "2026-10-15 12:00:00",
     ]
+    assert jobs.data(jobs.index(0, 1), TONE_ROLE) == "success"
 
 
 def test_every_codebook_column_is_shown_exactly_once() -> None:

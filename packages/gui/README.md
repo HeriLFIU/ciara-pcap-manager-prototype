@@ -22,6 +22,7 @@ no worker threads.
 | `main_window.py` | shell and controller: every network call, dialog and setting |
 | `state.py`       | the loaded analysis, shared by the pages                     |
 | `pages/`         | one view per sidebar entry; register new ones in `PAGES`     |
-| `widgets/`       | cards, breakdown bars, drop zone, flow detail panel          |
+| `widgets/`       | cards, breakdown bars, pills, drop zone, flow detail panel   |
 | `theme.py`       | colour tokens and the generated stylesheet                   |
+| `tones.py`       | which colour a protocol, termination or job status gets      |
 | `models.py`      | Qt table models with declarative columns                     |

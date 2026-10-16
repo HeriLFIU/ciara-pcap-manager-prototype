@@ -30,6 +30,8 @@ from PySide6.QtCore import (
 )
 from PySide6.QtCore import QPersistentModelIndex as QPmi
 
+from ciara_pcap_gui.tones import Tone, job_tone, protocol_tone, termination_tone
+
 if TYPE_CHECKING:
     from ciara_pcap_sdk.models import AnalysisJob, Flow
 
@@ -37,6 +39,8 @@ if TYPE_CHECKING:
 SORT_ROLE = Qt.ItemDataRole.UserRole + 1
 #: Role under which a row's SDK object is published.
 OBJECT_ROLE = Qt.ItemDataRole.UserRole + 2
+#: Role under which a categorical cell publishes its `Tone`, for pill rendering.
+TONE_ROLE = Qt.ItemDataRole.UserRole + 3
 
 _RIGHT = int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
@@ -50,6 +54,7 @@ class Column[T]:
     sort_key: Callable[[T], object]
     numeric: bool = False
     tooltip: str = ""
+    tone: Callable[[T], Tone] | None = None
 
 
 def _latency_key(flow: "Flow") -> float:
@@ -79,7 +84,12 @@ FLOW_COLUMNS: tuple[Column["Flow"], ...] = (
         lambda f: (f.ip_b, f.port_b),
         tooltip="Destination of the segment's first packet (ip_b:port_b)",
     ),
-    Column("Proto", lambda f: protocol_label(f.proto), lambda f: f.proto),
+    Column(
+        "Proto",
+        lambda f: protocol_label(f.proto),
+        lambda f: f.proto,
+        tone=lambda f: protocol_tone(protocol_label(f.proto)),
+    ),
     Column(
         "Packets",
         lambda f: format_count(f.pkts_total),
@@ -134,14 +144,22 @@ FLOW_COLUMNS: tuple[Column["Flow"], ...] = (
         tooltip="Largest INT queue occupancy (queue_occupancy_max)",
     ),
     Column(
-        "Ended by", lambda f: str(f.termination_reason), lambda f: f.termination_reason
+        "Ended by",
+        lambda f: str(f.termination_reason),
+        lambda f: f.termination_reason,
+        tone=lambda f: termination_tone(str(f.termination_reason)),
     ),
 )
 
 
 JOB_COLUMNS: tuple[Column["AnalysisJob"], ...] = (
     Column("Capture", lambda j: j.filename, lambda j: j.filename.lower()),
-    Column("Status", lambda j: str(j.status), lambda j: str(j.status)),
+    Column(
+        "Status",
+        lambda j: str(j.status),
+        lambda j: str(j.status),
+        tone=lambda j: job_tone(str(j.status)),
+    ),
     Column(
         "Size",
         lambda j: format_bytes(j.size_bytes),
@@ -224,6 +242,19 @@ class ObjectTableModel[T](QAbstractTableModel):
         """
         return self._rows[row]
 
+    def row_of(self, item: T) -> int | None:
+        """
+        Find the source row holding an object.
+
+        Args:
+            item: The object, compared by identity.
+
+        Returns:
+            The row, or None when the model does not hold it.
+
+        """
+        return next((row for row, held in enumerate(self._rows) if held is item), None)
+
     def rowCount(self, parent: QModelIndex | QPmi | None = None) -> int:  # noqa: N802 - Qt API
         """
         Report the number of rows.
@@ -275,15 +306,17 @@ class ObjectTableModel[T](QAbstractTableModel):
         row = self._rows[index.row()]
         column = self._columns[index.column()]
 
-        if role == Qt.ItemDataRole.DisplayRole:
-            return column.display(row)
-        if role == SORT_ROLE:
-            return column.sort_key(row)
         if role == OBJECT_ROLE:
             return row
-        if role == Qt.ItemDataRole.TextAlignmentRole and column.numeric:
-            return _RIGHT
-        return None
+        if role == Qt.ItemDataRole.TextAlignmentRole:
+            return _RIGHT if column.numeric else None
+        renderers: dict[int, Callable[[T], object] | None] = {
+            Qt.ItemDataRole.DisplayRole: column.display,
+            SORT_ROLE: column.sort_key,
+            TONE_ROLE: column.tone,
+        }
+        render = renderers.get(role)
+        return None if render is None else render(row)
 
     def headerData(  # noqa: N802 - Qt API
         self,

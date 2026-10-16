@@ -2,6 +2,11 @@
 
 from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
 
+from ciara_pcap_gui.tones import Tone
+
+_STRIPE_WIDTH = 28
+_STRIPE_HEIGHT = 4
+
 
 class Card(QFrame):
     """A rounded surface that groups related content under an optional title."""
@@ -29,20 +34,30 @@ class Card(QFrame):
 class StatCard(QFrame):
     """A single headline number with a title and a caption."""
 
-    def __init__(self, title: str, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, title: str, tone: Tone = Tone.ACCENT, parent: QWidget | None = None
+    ) -> None:
         """
         Create a card showing a placeholder value.
 
         Args:
             title: What the number measures, shown above it.
+            tone: Colour of the short stripe above the title.
             parent: Optional Qt parent.
 
         """
         super().__init__(parent)
         self.setObjectName("Card")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(2)
+        layout.setContentsMargins(18, 16, 18, 16)
+        layout.setSpacing(3)
+
+        stripe = QFrame()
+        stripe.setObjectName("StatStripe")
+        stripe.setProperty("tone", str(tone))
+        stripe.setFixedSize(_STRIPE_WIDTH, _STRIPE_HEIGHT)
+        layout.addWidget(stripe)
+        layout.addSpacing(6)
 
         self._title = QLabel(title.upper())
         self._title.setObjectName("CardTitle")

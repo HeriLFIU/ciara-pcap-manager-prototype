@@ -151,11 +151,12 @@ packages/gui/src/ciara_pcap_gui/
 ├── __main__.py      QApplication + qasync event loop
 ├── main_window.py   shell (sidebar, header, status bar) and controller
 ├── state.py         AnalysisState: the loaded job and flows, analysis_changed signal
-├── theme.py         colour tokens (light, dark) → generated stylesheet
+├── theme.py         colour tokens (light, dark) → generated stylesheet; WCAG contrast helper
+├── tones.py         semantic colours of protocols, termination reasons and job statuses
 ├── models.py        table models (columns declared as data) and the flow filter
 ├── features.py      grouping and formatting of the 99 features for the detail panel
 ├── pages/           base.Page and the Overview, Flows and History pages; PAGES registry
-└── widgets/         cards, breakdown bars, drop zone, flow detail panel
+└── widgets/         cards, breakdown bars, pills, drop zone, flow detail panel
 ```
 
 Pages are views over `AnalysisState`; the window performs every side effect

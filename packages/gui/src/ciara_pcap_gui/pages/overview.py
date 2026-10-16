@@ -14,20 +14,25 @@ from ciara_pcap_client import (
     ranked_counts,
     value_or,
 )
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QScrollArea,
+    QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from ciara_pcap_gui.pages.base import Page
+from ciara_pcap_gui.tones import Tone, protocol_tone, termination_tone
 from ciara_pcap_gui.widgets.breakdown import BreakdownList
 from ciara_pcap_gui.widgets.cards import Card, StatCard
 from ciara_pcap_gui.widgets.drop_zone import DropZone
+from ciara_pcap_gui.widgets.pill import Pill
 
 if TYPE_CHECKING:
     from ciara_pcap_sdk.models import AnalysisJob, Flow, FlowSummary
@@ -36,6 +41,27 @@ if TYPE_CHECKING:
 
 _TOP_FLOWS = 5
 _CARD_COLUMNS = 3
+_FLOW_ROW_HEIGHT = 38
+_PROTOCOL_WIDTH = 52
+_BYTES_WIDTH = 84
+#: A right-pointing chevron, written as an escape so it is not taken for a quote.
+_CHEVRON = "\u203a"
+
+
+def _hint(text: str) -> QLabel:
+    """
+    Build the small line under a card title that says what clicking does.
+
+    Args:
+        text: The hint.
+
+    Returns:
+        The label.
+
+    """
+    label = QLabel(text)
+    label.setObjectName("SectionHint")
+    return label
 
 
 class OverviewPage(Page):
@@ -43,6 +69,12 @@ class OverviewPage(Page):
 
     title = "Overview"
     subtitle = "What the decoder found in the capture"
+
+    flows_requested = Signal(str, str)
+    """Show the flows matching a search text and a protocol label ("" for any)."""
+
+    flow_activated = Signal(object)
+    """Open one flow (an SDK ``Flow``) in the flow browser."""
 
     def __init__(self, state: "AnalysisState", parent: QWidget | None = None) -> None:
         """
@@ -58,21 +90,35 @@ class OverviewPage(Page):
         self.drop_zone.browse_requested.connect(self.open_requested)
 
         self.cards = {
-            "flows": StatCard("Flows"),
-            "packets": StatCard("Inner packets"),
-            "bytes": StatCard("Inner bytes"),
-            "span": StatCard("Capture span"),
-            "int": StatCard("INT coverage"),
-            "order": StatCard("Reordered packets"),
+            "flows": StatCard("Flows", Tone.ACCENT),
+            "packets": StatCard("Inner packets", Tone.SECONDARY),
+            "bytes": StatCard("Inner bytes", Tone.ACCENT),
+            "span": StatCard("Capture span", Tone.NEUTRAL),
+            "int": StatCard("INT coverage", Tone.SUCCESS),
+            "order": StatCard("Reordered packets", Tone.WARNING),
         }
-        self.protocols = BreakdownList("No flows.")
-        self.terminations = BreakdownList("No flows.")
-        self.decode = BreakdownList("Every frame was decoded.")
-        self.top_flows = QLabel()
-        self.top_flows.setProperty("role", "mono")
-        self.top_flows.setWordWrap(True)
+        self.protocols = BreakdownList(
+            "No flows.",
+            interactive=True,
+            tone_for=protocol_tone,
+            action_hint="Show the {name} flows",
+        )
+        self.protocols.entry_activated.connect(self._show_protocol)
+        self.terminations = BreakdownList(
+            "No flows.",
+            interactive=True,
+            tone_for=termination_tone,
+            action_hint="Show the flows ended by {name}",
+        )
+        self.terminations.entry_activated.connect(self._show_termination)
+        self.decode = BreakdownList(
+            "Every frame was decoded.", tone_for=lambda _: Tone.WARNING
+        )
+        self.top_flows = QVBoxLayout()
+        self.top_flows.setSpacing(2)
+        self.top_flow_buttons: list[QPushButton] = []
         self.headline = QLabel()
-        self.headline.setObjectName("SectionTitle")
+        self.headline.setObjectName("Headline")
         self.detail = QLabel()
         self.detail.setProperty("role", "muted")
 
@@ -81,6 +127,26 @@ class OverviewPage(Page):
         self._stack.addWidget(self._build_content())
         self.layout_root.addWidget(self._stack)
         self.refresh()
+
+    def _show_protocol(self, label: str) -> None:
+        """
+        Ask for the flows of one protocol.
+
+        Args:
+            label: The protocol label, such as ``UDP``.
+
+        """
+        self.flows_requested.emit("", label)
+
+    def _show_termination(self, reason: str) -> None:
+        """
+        Ask for the flows that ended for one reason.
+
+        Args:
+            reason: The termination reason.
+
+        """
+        self.flows_requested.emit(reason, "")
 
     def _build_content(self) -> QWidget:
         """
@@ -94,8 +160,11 @@ class OverviewPage(Page):
         column = QVBoxLayout(content)
         column.setContentsMargins(0, 0, 0, 0)
         column.setSpacing(16)
-        column.addWidget(self.headline)
-        column.addWidget(self.detail)
+        heading = QVBoxLayout()
+        heading.setSpacing(2)
+        heading.addWidget(self.headline)
+        heading.addWidget(self.detail)
+        column.addLayout(heading)
 
         grid = QGridLayout()
         grid.setSpacing(12)
@@ -110,6 +179,7 @@ class OverviewPage(Page):
             ("Flows by termination reason", self.terminations),
         ):
             card = Card(title)
+            card.body.addWidget(_hint("Click a row to list those flows."))
             card.body.addWidget(widget)
             card.body.addStretch(1)
             breakdowns.addWidget(card)
@@ -121,7 +191,8 @@ class OverviewPage(Page):
         decode_card.body.addWidget(self.decode)
         decode_card.body.addStretch(1)
         top_card = Card("Largest flows by bytes")
-        top_card.body.addWidget(self.top_flows)
+        top_card.body.addWidget(_hint("Click a flow to open it in the flow browser."))
+        top_card.body.addLayout(self.top_flows)
         top_card.body.addStretch(1)
         lower.addWidget(decode_card)
         lower.addWidget(top_card, stretch=2)
@@ -195,11 +266,74 @@ class OverviewPage(Page):
         self.decode.set_entries(ranked_counts(decode.skipped))
 
         largest = sorted(flows, key=lambda flow: -flow.bytes_total)[:_TOP_FLOWS]
-        self.top_flows.setText(
-            "\n".join(
-                f"{endpoint(f.ip_a, f.port_a):>22} ⇄ {endpoint(f.ip_b, f.port_b):<22} "
-                f"{protocol_label(f.proto):<4} {format_bytes(f.bytes_total):>9}"
-                for f in largest
-            )
-            or "No flows."
+        self._show_top_flows(largest)
+
+    def _show_top_flows(self, flows: "list[Flow]") -> None:
+        """
+        Replace the rows of the largest-flows card.
+
+        Args:
+            flows: The flows to list, largest first.
+
+        """
+        while (item := self.top_flows.takeAt(0)) is not None:
+            widget = item.widget()
+            if widget is not None:
+                widget.hide()
+                widget.deleteLater()
+        self.top_flow_buttons = [
+            self._flow_row(rank, flow) for rank, flow in enumerate(flows, start=1)
+        ]
+        for button in self.top_flow_buttons:
+            self.top_flows.addWidget(button)
+        if not flows:
+            empty = QLabel("No flows.")
+            empty.setProperty("role", "muted")
+            self.top_flows.addWidget(empty)
+
+    def _flow_row(self, rank: int, flow: "Flow") -> QPushButton:
+        """
+        Build one clickable row of the largest-flows card.
+
+        Args:
+            rank: 1 for the largest flow.
+            flow: The flow.
+
+        Returns:
+            The row.
+
+        """
+        button = QPushButton()
+        button.setObjectName("FlowRow")
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setToolTip("Open this flow in the flow browser")
+        button.setMinimumHeight(_FLOW_ROW_HEIGHT)
+        button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        button.clicked.connect(lambda: self.flow_activated.emit(flow))
+
+        number = QLabel(f"{rank}")
+        number.setProperty("role", "muted")
+        number.setFixedWidth(14)
+        endpoints = QLabel(
+            f"{endpoint(flow.ip_a, flow.port_a)}  ⇄  {endpoint(flow.ip_b, flow.port_b)}"
         )
+        endpoints.setProperty("role", "mono")
+        label = protocol_label(flow.proto)
+        pill = Pill(label, protocol_tone(label))
+        pill.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        pill.setFixedWidth(_PROTOCOL_WIDTH)
+        size = QLabel(format_bytes(flow.bytes_total))
+        size.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        size.setMinimumWidth(_BYTES_WIDTH)
+        arrow = QLabel(_CHEVRON)
+        arrow.setObjectName("RowHint")
+
+        row = QHBoxLayout(button)
+        row.setContentsMargins(10, 0, 10, 0)
+        row.setSpacing(12)
+        row.addWidget(number)
+        row.addWidget(endpoints, stretch=1)
+        row.addWidget(pill, alignment=Qt.AlignmentFlag.AlignVCenter)
+        row.addWidget(size)
+        row.addWidget(arrow)
+        return button

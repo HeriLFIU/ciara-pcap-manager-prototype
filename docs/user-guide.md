@@ -19,12 +19,15 @@ stops both when the window closes.
 
 ![Empty state](images/gui-empty.png)
 
-The header shows the backend's status (*Backend online* / *offline*), its URL
-(editable; remembered between sessions) and **Open capture…**. Open a
-`.pcap` or `.pcapng` file with the button, *File → Open capture…* (Ctrl+O), or
-by dragging it onto the window. The upload, the parse and the download of the
-flows run in the background; the window stays usable and the status bar
-reports progress.
+The header shows the backend's status (*Backend online* / *offline*; click
+it to check again), its URL (editable; remembered between sessions), the
+theme switch and **Open capture…**. Open a `.pcap` or `.pcapng` file with the
+button, *File → Open capture…* (Ctrl+O), or by dragging it onto the window.
+The upload, the parse and the download of the flows run in the background;
+the window stays usable and the status bar reports progress.
+
+Once a capture is loaded, the sidebar names it and shows its flow count next
+to **Flows**.
 
 ### Overview
 
@@ -42,21 +45,34 @@ Headline numbers for the capture:
 | Reordered packets | packets read out of time order and put back by the reorder buffer; the caption shows any that lagged beyond the window |
 
 Below them: flows by protocol, flows by termination reason, frames the decoder
-skipped and why, and the five largest flows by bytes.
+skipped and why, and the five largest flows by bytes. These are shortcuts
+into the flow browser:
+
+- click a protocol (**TCP**, **UDP**) to list only its flows;
+- click a termination reason (**tcp_rst**…) to filter the flows by it;
+- click one of the largest flows to open it with its features shown.
+
+Colours carry meaning everywhere: TCP is indigo and UDP teal; a clean
+`tcp_fin_both` close is green, a `tcp_rst` reset red, an `active_timeout`
+amber.
 
 ### Flows
 
 ![Flows](images/gui-flows.png)
 
-Every flow segment, one per row. Click a column header to sort; numbers sort
+Every flow segment, one per row; protocol and termination reason are shown
+as coloured tags. Click a column header to sort; numbers sort
 numerically. The filter box matches addresses, ports, protocol, termination
 reason and flow id; every word typed must match (`187.84.112.97 udp`). The
 protocol menu narrows to TCP or UDP. Ctrl+F jumps to the filter.
 
-Selecting a row shows **all 99 codebook features** of that flow on the right,
-grouped as in the codebook (identity, orientation, counts, provenance, rates,
-sizes, INT, TCP flags, directionality and quality). Hover a value for its
-exact, unrounded form; select rows and press Ctrl+C to copy them as
+Selecting a row opens its summary on the right: packets, bytes, duration and
+mean INT latency, and a bar splitting the packets into A→B (indigo) and B→A
+(teal). Below it are **all 99 codebook features** of the flow, grouped as in
+the codebook (identity, orientation, counts, provenance, rates, sizes, INT,
+TCP flags, directionality and quality). Type in *Filter features…* to narrow
+them by name (`latency`, `pkts`). Hover a value for its exact, unrounded
+form; select rows and press Ctrl+C, or press **Copy all**, to copy them as
 `feature<TAB>value` lines.
 
 **Export CSV** (or Ctrl+E) writes every flow, not just the filtered ones, with
@@ -67,16 +83,18 @@ ones the CLI and `ciara-pcap-inspect` write.
 
 ![History](images/gui-history.png)
 
-Lists the analyses the backend holds (Ctrl+R to refresh). Double-click a
-succeeded one, or select it and press **Open selected**, to load it again
-without re-uploading. The backend keeps analyses in memory, so the list
+Lists the analyses the backend holds (Ctrl+R to refresh), with each status as
+a coloured tag. Double-click a succeeded one, or select it and press **Open
+selected**, to load it again without re-uploading. The backend keeps analyses in memory, so the list
 empties when it restarts.
 
 ### Themes and shortcuts
 
-*View → Toggle dark theme* (Ctrl+T) switches between the light and dark
-themes; the choice, the backend URL and the window size are remembered. On
-first start the app follows the operating system's colour scheme.
+The header's **Dark** / **Light** button, *View → Toggle dark theme* or
+Ctrl+T switches between the light and dark themes; the choice, the backend
+URL and the window size are remembered. On first start the app follows the
+operating system's colour scheme. Both themes meet WCAG 2.2 contrast: body
+text at 7:1 or more, all other text at 4.5:1, input borders at 3:1.
 
 ![Flows, dark theme](images/gui-flows-dark.png)
 

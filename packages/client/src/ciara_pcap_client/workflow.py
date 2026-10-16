@@ -70,7 +70,11 @@ def build_client(base_url: str = DEFAULT_BASE_URL, *, timeout: float = 60.0) -> 
 
 async def _send[T](call: "Awaitable[Response[T]]") -> Response[T]:
     """
-    Await one SDK call, reporting a refused request as an `ApiError`.
+    Await one SDK call, reporting a refused or failed request as an `ApiError`.
+
+    httpx's transport errors (refused connection, timeout) are not `OSError`
+    subclasses, so they are translated here too: callers then handle one
+    exception type for every way a request can fail.
 
     Args:
         call: The ``asyncio_detailed`` coroutine to await.
@@ -79,13 +83,17 @@ async def _send[T](call: "Awaitable[Response[T]]") -> Response[T]:
         The detailed response, with its payload type preserved.
 
     Raises:
-        ApiError: If the backend answered with an unexpected status.
+        ApiError: If the backend answered with an unexpected status, or could
+            not be reached at all.
 
     """
     try:
         return await call
     except UnexpectedStatus as exc:
         raise ApiError(_describe(exc)) from exc
+    except httpx.TransportError as exc:
+        msg = f"Cannot reach the backend: {exc}"
+        raise ApiError(msg) from exc
 
 
 async def _request[T](call: "Awaitable[Response[Any]]", expected: type[T]) -> T:
