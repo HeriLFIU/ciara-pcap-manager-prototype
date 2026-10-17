@@ -3,7 +3,7 @@
 from typing import TYPE_CHECKING
 
 from ciara_pcap_client import format_count
-from PySide6.QtCore import QItemSelection, Qt
+from PySide6.QtCore import QItemSelection, QModelIndex, Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -58,6 +58,7 @@ class FlowsPage(Page):
         super().__init__(state, parent)
         self.model = FlowTableModel(self)
         self.proxy = FlowFilterProxy(self.model, self)
+        self._shown: Flow | None = None
 
         self.search = QLineEdit()
         self.search.setPlaceholderText("Filter by address, port, protocol or reason…")
@@ -180,7 +181,7 @@ class FlowsPage(Page):
         self._stack.setCurrentIndex(1 if self.state.flows else 0)
         self.export_button.setEnabled(bool(self.state.flows))
         self.table.resizeColumnsToContents()
-        self.detail.show_flow(None)
+        self._show_detail(None)
         self._update_count()
 
     def badge(self) -> str:
@@ -245,10 +246,28 @@ class FlowsPage(Page):
         return self.model.row_object(self.proxy.mapToSource(rows[0]).row())
 
     def _on_filter_changed(self) -> None:
-        """Apply the search text and protocol choice to the table."""
-        self.proxy.set_text(self.search.text())
-        self.proxy.set_protocol(self.protocol.currentData())
+        """
+        Apply the search text and protocol choice to the table.
+
+        A filter change resets the table, which drops the selection: the
+        selected flow is selected again, and scrolled to, while it matches.
+        """
+        selected = self.selected_flow()
+        self.proxy.set_filter(self.search.text(), self.protocol.currentData())
         self._update_count()
+        if selected is None or self.selected_flow() is selected:
+            return
+        row = self.model.row_of(selected)
+        index = (
+            QModelIndex()
+            if row is None
+            else self.proxy.mapFromSource(self.model.index(row, 0))
+        )
+        if index.isValid():
+            self.table.selectRow(index.row())
+            self.table.scrollTo(index)
+        else:
+            self._show_detail(None)
 
     def _on_selection(
         self, selected: QItemSelection, deselected: QItemSelection
@@ -262,7 +281,20 @@ class FlowsPage(Page):
 
         """
         del selected, deselected
-        self.detail.show_flow(self.selected_flow())
+        self._show_detail(self.selected_flow())
+
+    def _show_detail(self, flow: "Flow | None") -> None:
+        """
+        Show a flow in the detail panel, unless it is already shown.
+
+        Args:
+            flow: The flow, or None to clear the panel.
+
+        """
+        if flow is self._shown:
+            return
+        self._shown = flow
+        self.detail.show_flow(flow)
 
     def _update_count(self) -> None:
         """Show how many flows pass the filter."""

@@ -62,9 +62,11 @@ amber.
 
 Every flow segment, one per row; protocol and termination reason are shown
 as coloured tags. Click a column header to sort; numbers sort
-numerically. The filter box matches addresses, ports, protocol, termination
-reason and flow id; every word typed must match (`187.84.112.97 udp`). The
-protocol menu narrows to TCP or UDP. Ctrl+F jumps to the filter.
+numerically and endpoints by address value (`10.0.0.9` before `10.0.0.10`).
+The filter box matches addresses, ports, protocol, termination reason and
+flow id; every word typed must match (`187.84.112.97 udp`). The protocol menu
+narrows to TCP or UDP. Ctrl+F jumps to the filter. Sorting and filtering keep
+the selected flow selected while it still matches.
 
 Selecting a row opens its summary on the right: packets, bytes, duration and
 mean INT latency, and a bar splitting the packets into A→B (indigo) and B→A
@@ -83,7 +85,8 @@ ones the CLI and `ciara-pcap-inspect` write.
 
 ![History](images/gui-history.png)
 
-Lists the analyses the backend holds (Ctrl+R to refresh), with each status as
+Lists the analyses the backend holds, reloaded each time you open the page
+(Ctrl+R to refresh), with each status as
 a coloured tag. Double-click a succeeded one, or select it and press **Open
 selected**, to load it again without re-uploading. The backend keeps analyses in memory, so the list
 empties when it restarts.
