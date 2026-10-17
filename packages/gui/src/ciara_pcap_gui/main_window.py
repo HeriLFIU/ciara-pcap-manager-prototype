@@ -83,6 +83,9 @@ _BRAND_MARK = 38
 _INDICATOR_WIDTH = 3
 _INDICATOR_HEIGHT = 18
 _CAPTURE_NAME_WIDTH = 176
+#: Seconds between job polls: a local backend answers in milliseconds, and a
+#: short interval shows a finished analysis sooner.
+_POLL_INTERVAL = 0.2
 
 
 class MainWindow(QMainWindow):
@@ -116,6 +119,7 @@ class MainWindow(QMainWindow):
         self.settings = settings or QSettings()
         self.state = AnalysisState(self)
         self._busy = False
+        self._listing_jobs = False
 
         self.pages: list[Page] = [page_class(self.state) for page_class in PAGES]
         self.overview = self._page(OverviewPage)
@@ -490,13 +494,16 @@ class MainWindow(QMainWindow):
 
     def show_page(self, index: int) -> None:
         """
-        Switch to a page.
+        Switch to a page. Entering the history page reloads the job list.
 
         Args:
             index: Position of the page in ``PAGES``.
 
         """
         page = self.pages[index]
+        entering_history = (
+            page is self.history and self.stack.currentWidget() is not page
+        )
         self.stack.setCurrentWidget(page)
         self.nav.button(index).setChecked(True)
         for position, indicator in enumerate(self._nav_indicators):
@@ -504,6 +511,8 @@ class MainWindow(QMainWindow):
             repolish(indicator)
         self.page_title.setText(page.title)
         self.page_subtitle.setText(page.subtitle)
+        if entering_history:
+            self.history.refresh_requested.emit()
 
     def current_page(self) -> Page:
         """
@@ -728,6 +737,7 @@ class MainWindow(QMainWindow):
                 job, flows = await analyze_capture(
                     client,
                     pcap_path,
+                    poll_interval=_POLL_INTERVAL,
                     on_update=self._on_job_update,
                     on_page=self._on_flow_page,
                 )
@@ -758,6 +768,10 @@ class MainWindow(QMainWindow):
 
     async def refresh_history(self) -> None:
         """Fetch the job list from the backend and show it."""
+        if self._listing_jobs:
+            return
+        self._listing_jobs = True
+        self.history.set_loading()
         try:
             async with build_client(self._url()) as client:
                 jobs = await list_jobs(client)
@@ -765,6 +779,8 @@ class MainWindow(QMainWindow):
             self.history.set_error(f"Could not list analyses: {exc}")
             self.set_backend_state("error", "Backend offline")
             return
+        finally:
+            self._listing_jobs = False
         self.history.set_jobs(jobs)
         self.set_backend_state("ok", "Backend online")
 

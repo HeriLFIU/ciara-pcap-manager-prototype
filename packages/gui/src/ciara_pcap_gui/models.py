@@ -5,8 +5,15 @@ The models keep SDK objects as they are and render cells on demand, so a
 capture with hundreds of thousands of flows costs one Python object per flow
 rather than one widget per cell. Columns are declared as data (`Column`), so
 adding a column to a table is one line here.
+
+Sorting and filtering the flow table stay in Python on purpose: a
+``QSortFilterProxyModel`` asks the model for both cells of every comparison,
+which costs one Python call per comparison and made a sort of 15,000 flows take
+most of a second. `FlowFilterProxy` sorts once with ``sorted`` over cached keys
+and filters with one pass over precomputed search text instead.
 """
 
+import ipaddress
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -22,10 +29,10 @@ from ciara_pcap_client import (
     value_or,
 )
 from PySide6.QtCore import (
+    QAbstractProxyModel,
     QAbstractTableModel,
     QModelIndex,
     QObject,
-    QSortFilterProxyModel,
     Qt,
 )
 from PySide6.QtCore import QPersistentModelIndex as QPmi
@@ -43,6 +50,9 @@ OBJECT_ROLE = Qt.ItemDataRole.UserRole + 2
 TONE_ROLE = Qt.ItemDataRole.UserRole + 3
 
 _RIGHT = int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+_DISPLAY = int(Qt.ItemDataRole.DisplayRole)
+_ALIGNMENT = int(Qt.ItemDataRole.TextAlignmentRole)
+_ASCENDING = Qt.SortOrder.AscendingOrder
 
 
 @dataclass(frozen=True)
@@ -55,6 +65,31 @@ class Column[T]:
     numeric: bool = False
     tooltip: str = ""
     tone: Callable[[T], Tone] | None = None
+
+
+def _endpoint_key(ip: str, port: int) -> tuple[int, int, str, int]:
+    """
+    Sort key for an endpoint that orders addresses by value, not as text.
+
+    As text, ``10.0.0.10`` sorts before ``10.0.0.9``.
+
+    Args:
+        ip: The address.
+        port: The port.
+
+    Returns:
+        IP version and address value, then the port. A string that is not an
+        address sorts after every address, by its text.
+
+    """
+    try:
+        address = ipaddress.ip_address(ip)
+    except ValueError:
+        return (_NOT_AN_ADDRESS, 0, ip, port)
+    return (address.version, int(address), "", port)
+
+
+_NOT_AN_ADDRESS = 99
 
 
 def _latency_key(flow: "Flow") -> float:
@@ -75,13 +110,13 @@ FLOW_COLUMNS: tuple[Column["Flow"], ...] = (
     Column(
         "Endpoint A",
         lambda f: endpoint(f.ip_a, f.port_a),
-        lambda f: (f.ip_a, f.port_a),
+        lambda f: _endpoint_key(f.ip_a, f.port_a),
         tooltip="Source of the segment's first packet (ip_a:port_a)",
     ),
     Column(
         "Endpoint B",
         lambda f: endpoint(f.ip_b, f.port_b),
-        lambda f: (f.ip_b, f.port_b),
+        lambda f: _endpoint_key(f.ip_b, f.port_b),
         tooltip="Destination of the segment's first packet (ip_b:port_b)",
     ),
     Column(
@@ -205,6 +240,7 @@ class ObjectTableModel[T](QAbstractTableModel):
         super().__init__(parent)
         self._columns = tuple(columns)
         self._rows: list[T] = []
+        self._renderers = [_renderers(column) for column in self._columns]
 
     @property
     def columns(self) -> tuple[Column[T], ...]:
@@ -303,20 +339,27 @@ class ObjectTableModel[T](QAbstractTableModel):
         """
         if not index.isValid():
             return None
-        row = self._rows[index.row()]
-        column = self._columns[index.column()]
+        return self.cell(index.row(), index.column(), role)
 
-        if role == OBJECT_ROLE:
-            return row
-        if role == Qt.ItemDataRole.TextAlignmentRole:
-            return _RIGHT if column.numeric else None
-        renderers: dict[int, Callable[[T], object] | None] = {
-            Qt.ItemDataRole.DisplayRole: column.display,
-            SORT_ROLE: column.sort_key,
-            TONE_ROLE: column.tone,
-        }
-        render = renderers.get(role)
-        return None if render is None else render(row)
+    def cell(self, row: int, column: int, role: int) -> Any:  # noqa: ANN401 - Qt variant
+        """
+        Return the value of one cell, by position, for the requested role.
+
+        Views ask for a dozen roles per cell and most go unanswered, so the
+        role is looked up first and the row is only read for a role this
+        column renders.
+
+        Args:
+            row: The source row.
+            column: The column.
+            role: The Qt item data role.
+
+        Returns:
+            The cell value, or None when the role is not handled.
+
+        """
+        render = self._renderers[column].get(role)
+        return None if render is None else render(self._rows[row])
 
     def headerData(  # noqa: N802 - Qt API
         self,
@@ -348,8 +391,31 @@ class ObjectTableModel[T](QAbstractTableModel):
         return None
 
 
+def _renderers[T](column: Column[T]) -> dict[int, Callable[[T], object]]:
+    """
+    Map each role a column answers to the function that renders it.
+
+    Args:
+        column: The column.
+
+    Returns:
+        Renderers keyed by role number.
+
+    """
+    renderers: dict[int, Callable[[T], object]] = {
+        _DISPLAY: column.display,
+        SORT_ROLE: column.sort_key,
+        OBJECT_ROLE: lambda row: row,
+    }
+    if column.tone is not None:
+        renderers[TONE_ROLE] = column.tone
+    if column.numeric:
+        renderers[_ALIGNMENT] = lambda _: _RIGHT
+    return renderers
+
+
 class FlowTableModel(ObjectTableModel["Flow"]):
-    """The flow table, with a precomputed search string per flow."""
+    """The flow table, with precomputed search text, protocols and sort orders."""
 
     def __init__(self, parent: QObject | None = None) -> None:
         """
@@ -361,6 +427,8 @@ class FlowTableModel(ObjectTableModel["Flow"]):
         """
         super().__init__(FLOW_COLUMNS, parent)
         self._search: list[str] = []
+        self._protocols: list[int] = []
+        self._orders: dict[tuple[int, Qt.SortOrder], list[int]] = {}
 
     def set_rows(self, rows: "Sequence[Flow]") -> None:
         """
@@ -382,6 +450,8 @@ class FlowTableModel(ObjectTableModel["Flow"]):
             ).lower()
             for flow in rows
         ]
+        self._protocols = [flow.proto for flow in rows]
+        self._orders = {}
         super().set_rows(rows)
 
     def search_text(self, row: int) -> str:
@@ -397,16 +467,80 @@ class FlowTableModel(ObjectTableModel["Flow"]):
         """
         return self._search[row]
 
+    def matching_rows(
+        self, rows: Sequence[int], terms: Sequence[str], proto: int | None
+    ) -> list[int]:
+        """
+        Keep the rows whose flow matches every term and the protocol.
 
-class FlowFilterProxy(QSortFilterProxyModel):
-    """Filters flows by free text (all words must match) and by protocol."""
+        Args:
+            rows: Source rows, in the order to keep.
+            terms: Lower-case words that must all appear in the search text.
+            proto: An IP protocol number, or None for every protocol.
+
+        Returns:
+            The matching rows, in the given order.
+
+        """
+        if proto is not None:
+            protocols = self._protocols
+            rows = [row for row in rows if protocols[row] == proto]
+        search = self._search
+        for term in terms:
+            rows = [row for row in rows if term in search[row]]
+        return list(rows)
+
+    def sorted_rows(self, column: int, order: Qt.SortOrder) -> Sequence[int]:
+        """
+        Return the source rows ordered by one column.
+
+        The order is computed once per column and direction, then cached until
+        the rows change. Equal keys keep the backend order in both directions,
+        as a stable sort does.
+
+        Args:
+            column: The column to sort by; a negative or unknown column
+                keeps the backend order.
+            order: Ascending or descending.
+
+        Returns:
+            Every source row, in sorted order.
+
+        """
+        if not 0 <= column < len(self.columns):
+            return range(self.rowCount())
+        cached = self._orders.get((column, order))
+        if cached is None:
+            sort_key = self.columns[column].sort_key
+            keys: list[Any] = [sort_key(flow) for flow in self._rows]
+            cached = sorted(
+                range(len(keys)),
+                key=keys.__getitem__,
+                reverse=order != _ASCENDING,
+            )
+            self._orders[column, order] = cached
+        return cached
+
+
+class FlowFilterProxy(QAbstractProxyModel):
+    """
+    Sorts flows by a column and filters them by free text and by protocol.
+
+    The mapping is two lists: proxy row to source row, and source row to proxy
+    row (-1 when filtered out). Sorting keeps the rows and reorders them, so it
+    is a layout change that carries the selection along; a filter change
+    resets the model, as rows come and go.
+
+    The source must announce every change with a model reset, as
+    `ObjectTableModel.set_rows` does.
+    """
 
     def __init__(self, source: FlowTableModel, parent: QObject | None = None) -> None:
         """
         Wrap a flow model.
 
         Args:
-            source: The model to filter.
+            source: The model to sort and filter.
             parent: Optional Qt parent.
 
         """
@@ -414,8 +548,14 @@ class FlowFilterProxy(QSortFilterProxyModel):
         self._flows = source
         self._terms: list[str] = []
         self._proto: int | None = None
+        self._sort_column = -1
+        self._sort_order = _ASCENDING
+        self._rows: list[int] = []
+        self._positions: list[int] = []
         self.setSourceModel(source)
-        self.setSortRole(SORT_ROLE)
+        source.modelAboutToBeReset.connect(self.beginResetModel)
+        source.modelReset.connect(self._on_source_reset)
+        self._remap()
 
     def set_text(self, text: str) -> None:
         """
@@ -425,9 +565,7 @@ class FlowFilterProxy(QSortFilterProxyModel):
             text: The filter text; empty shows every flow.
 
         """
-        self.beginFilterChange()
-        self._terms = text.lower().split()
-        self.endFilterChange()
+        self.set_filter(text, self._proto)
 
     def set_protocol(self, proto: int | None) -> None:
         """
@@ -437,29 +575,221 @@ class FlowFilterProxy(QSortFilterProxyModel):
             proto: 6, 17, or None for every protocol.
 
         """
-        self.beginFilterChange()
-        self._proto = proto
-        self.endFilterChange()
+        self.set_filter(" ".join(self._terms), proto)
 
-    def filterAcceptsRow(  # noqa: N802 - Qt API
-        self, source_row: int, source_parent: QModelIndex | QPmi
-    ) -> bool:
+    def set_filter(self, text: str, proto: int | None) -> None:
         """
-        Decide whether a flow passes the current filters.
+        Replace both filters at once, refiltering only if either changed.
 
         Args:
-            source_row: Row in the source model.
-            source_parent: Unused; the model is flat.
-
-        Returns:
-            True when the flow matches every term and the protocol.
+            text: The filter text; empty shows every flow.
+            proto: An IP protocol number, or None for every protocol.
 
         """
-        del source_parent
+        terms = text.lower().split()
+        if terms == self._terms and proto == self._proto:
+            return
+        self.beginResetModel()
+        self._terms = terms
+        self._proto = proto
+        self._remap()
+        self.endResetModel()
+
+    def sort(self, column: int, order: Qt.SortOrder = _ASCENDING) -> None:
+        """
+        Sort by one column, keeping every index the views hold on its flow.
+
+        Args:
+            column: The column; -1 restores the backend order.
+            order: Ascending or descending.
+
+        """
+        self.layoutAboutToBeChanged.emit()
+        held = self.persistentIndexList()
+        flows = [(self._rows[index.row()], index.column()) for index in held]
+        self._sort_column = column
+        self._sort_order = order
+        self._remap()
+        self.changePersistentIndexList(
+            held,
+            [self.createIndex(self._positions[row], cell) for row, cell in flows],
+        )
+        self.layoutChanged.emit()
+
+    def _remap(self) -> None:
+        """Rebuild the row mapping from the sort and the filters."""
+        ordered = self._flows.sorted_rows(self._sort_column, self._sort_order)
+        if self._terms or self._proto is not None:
+            self._rows = self._flows.matching_rows(ordered, self._terms, self._proto)
+        else:
+            self._rows = list(ordered)
+        self._positions = [-1] * self._flows.rowCount()
+        for position, row in enumerate(self._rows):
+            self._positions[row] = position
+
+    def _on_source_reset(self) -> None:
+        """Remap after the source replaced its rows, then end the reset."""
+        self._remap()
+        self.endResetModel()
+
+    def mapToSource(  # noqa: N802 - Qt API
+        self,
+        proxyIndex: QModelIndex | QPmi,  # noqa: N803 - Qt API
+    ) -> QModelIndex:
+        """
+        Find the source cell behind a proxy cell.
+
+        Args:
+            proxyIndex: The proxy cell.
+
+        Returns:
+            The source cell, or an invalid index.
+
+        """
+        if not proxyIndex.isValid():
+            return QModelIndex()
+        return self._flows.index(self._rows[proxyIndex.row()], proxyIndex.column())
+
+    def mapFromSource(  # noqa: N802 - Qt API
+        self,
+        sourceIndex: QModelIndex | QPmi,  # noqa: N803 - Qt API
+    ) -> QModelIndex:
+        """
+        Find the proxy cell showing a source cell.
+
+        Args:
+            sourceIndex: The source cell.
+
+        Returns:
+            The proxy cell, or an invalid index when the flow is filtered out.
+
+        """
+        if not sourceIndex.isValid():
+            return QModelIndex()
+        position = self._positions[sourceIndex.row()]
+        if position < 0:
+            return QModelIndex()
+        return self.createIndex(position, sourceIndex.column())
+
+    def index(
+        self, row: int, column: int, parent: QModelIndex | QPmi | None = None
+    ) -> QModelIndex:
+        """
+        Create the index of a proxy cell.
+
+        Args:
+            row: The proxy row.
+            column: The column.
+            parent: Must be invalid; the model is flat.
+
+        Returns:
+            The index, or an invalid index when out of range.
+
+        """
         if (
-            self._proto is not None
-            and self._flows.row_object(source_row).proto != self._proto
+            (parent is not None and parent.isValid())
+            or not 0 <= row < len(self._rows)
+            or not 0 <= column < self._flows.columnCount()
         ):
+            return QModelIndex()
+        return self.createIndex(row, column)
+
+    def parent(self, child: QModelIndex | QPmi | None = None) -> Any:  # noqa: ANN401 - Qt overloads parent() and parent(index)
+        """
+        Return the parent of a cell, or the Qt parent object when called bare.
+
+        Args:
+            child: A cell of this model; omitted for the ``QObject`` parent.
+
+        Returns:
+            An invalid index, as the model is flat; or the parent ``QObject``.
+
+        """
+        if child is None:
+            return super().parent()
+        return QModelIndex()
+
+    def rowCount(self, parent: QModelIndex | QPmi | None = None) -> int:  # noqa: N802 - Qt API
+        """
+        Report the number of flows that pass the filters.
+
+        Args:
+            parent: Unused; the model is flat.
+
+        Returns:
+            The row count.
+
+        """
+        if parent is not None and parent.isValid():
+            return 0
+        return len(self._rows)
+
+    def columnCount(self, parent: QModelIndex | QPmi | None = None) -> int:  # noqa: N802 - Qt API
+        """
+        Report the number of columns.
+
+        Args:
+            parent: Unused; the model is flat.
+
+        Returns:
+            The column count.
+
+        """
+        if parent is not None and parent.isValid():
+            return 0
+        return self._flows.columnCount()
+
+    def hasChildren(self, parent: QModelIndex | QPmi | None = None) -> bool:  # noqa: N802 - Qt API
+        """
+        Report whether a cell has children: only the root does, when not empty.
+
+        Args:
+            parent: The cell.
+
+        Returns:
+            True for the root of a non-empty model.
+
+        """
+        if parent is not None and parent.isValid():
             return False
-        text = self._flows.search_text(source_row)
-        return all(term in text for term in self._terms)
+        return bool(self._rows) and self._flows.columnCount() > 0
+
+    def data(
+        self,
+        index: QModelIndex | QPmi,
+        role: int = Qt.ItemDataRole.DisplayRole,
+    ) -> Any:  # noqa: ANN401 - Qt returns a variant
+        """
+        Return the value of one cell, read from the source row it shows.
+
+        Args:
+            index: The proxy cell.
+            role: The Qt item data role.
+
+        Returns:
+            The cell value, or None.
+
+        """
+        if not index.isValid():
+            return None
+        return self._flows.cell(self._rows[index.row()], index.column(), role)
+
+    def headerData(  # noqa: N802 - Qt API
+        self,
+        section: int,
+        orientation: Qt.Orientation,
+        role: int = Qt.ItemDataRole.DisplayRole,
+    ) -> Any:  # noqa: ANN401 - Qt returns a variant
+        """
+        Return the source's column header; the columns are not reordered.
+
+        Args:
+            section: Column or row index.
+            orientation: Which header is being drawn.
+            role: The Qt item data role.
+
+        Returns:
+            The header value, or None.
+
+        """
+        return self._flows.headerData(section, orientation, role)

@@ -113,6 +113,10 @@ class HistoryPage(Page):
             else "The backend has no analyses yet. Open a capture to start one."
         )
 
+    def set_loading(self) -> None:
+        """Say that the job list is being fetched."""
+        self.message.setText("Loading the backend's analyses…")
+
     def set_error(self, message: str) -> None:
         """
         Report that the job list could not be loaded.

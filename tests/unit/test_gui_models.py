@@ -7,6 +7,7 @@ Qt runs on the offscreen platform plugin (see ``[tool.pytest_env]``).
 
 import json
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 from ciara_pcap_client import FLOW_CSV_COLUMNS
@@ -22,7 +23,7 @@ from ciara_pcap_gui.models import (
     ObjectTableModel,
 )
 from ciara_pcap_sdk.models import AnalysisJob, Flow
-from PySide6.QtCore import QCoreApplication, Qt
+from PySide6.QtCore import QCoreApplication, QPersistentModelIndex, Qt
 
 from tests.support.factories import make_flow, summary_payload
 
@@ -122,6 +123,139 @@ def test_sorting_uses_raw_values(model: FlowTableModel) -> None:
     proxy.sort(column, Qt.SortOrder.DescendingOrder)
 
     assert proxy.data(proxy.index(0, column)) == "4.0 KB"
+
+
+def test_sorting_ascending_and_back_to_backend_order(model: FlowTableModel) -> None:
+    proxy = FlowFilterProxy(model)
+    column = [c.header for c in FLOW_COLUMNS].index("Bytes")
+
+    proxy.sort(column, Qt.SortOrder.AscendingOrder)
+    assert [proxy.data(proxy.index(row, column)) for row in range(3)] == [
+        "158 B",
+        "509 B",
+        "4.0 KB",
+    ]
+    proxy.sort(-1)
+    assert [proxy.data(proxy.index(row, column)) for row in range(3)] == [
+        "509 B",
+        "158 B",
+        "4.0 KB",
+    ]
+
+
+def test_endpoints_sort_by_address_value_not_text(
+    qt_app: QCoreApplication,  # noqa: ARG001 - Qt needs the app alive
+) -> None:
+    table = FlowTableModel()
+    table.set_rows(
+        [
+            sdk_flow(ip_a="10.0.0.10"),
+            sdk_flow(ip_a="10.0.0.9"),
+            sdk_flow(ip_a="9.1.1.1"),
+        ]
+    )
+    proxy = FlowFilterProxy(table)
+
+    proxy.sort(0, Qt.SortOrder.AscendingOrder)
+
+    assert [proxy.data(proxy.index(row, 0)) for row in range(3)] == [
+        "9.1.1.1:5001",
+        "10.0.0.9:5001",
+        "10.0.0.10:5001",
+    ]
+
+
+def test_the_filter_keeps_the_sort_order(model: FlowTableModel) -> None:
+    proxy = FlowFilterProxy(model)
+    column = [c.header for c in FLOW_COLUMNS].index("Bytes")
+    proxy.sort(column, Qt.SortOrder.DescendingOrder)
+
+    proxy.set_protocol(6)
+
+    assert [proxy.data(proxy.index(row, column)) for row in range(2)] == [
+        "4.0 KB",
+        "509 B",
+    ]
+
+
+def test_a_persistent_index_follows_its_flow_through_a_sort(
+    model: FlowTableModel,
+) -> None:
+    proxy = FlowFilterProxy(model)
+    column = [c.header for c in FLOW_COLUMNS].index("Bytes")
+    held = QPersistentModelIndex(proxy.index(0, column))  # the 509 B flow
+
+    proxy.sort(column, Qt.SortOrder.DescendingOrder)
+
+    assert held.row() == 1
+    assert held.data() == "509 B"
+
+
+def test_a_persistent_index_is_dropped_when_its_flow_is_filtered_out(
+    model: FlowTableModel,
+) -> None:
+    proxy = FlowFilterProxy(model)
+    udp = QPersistentModelIndex(proxy.index(1, 0))
+
+    proxy.set_protocol(6)
+
+    assert not udp.isValid()
+
+
+def test_mapping_between_proxy_and_source(model: FlowTableModel) -> None:
+    proxy = FlowFilterProxy(model)
+    proxy.set_protocol(17)
+
+    assert proxy.mapToSource(proxy.index(0, 2)).row() == 1
+    assert proxy.mapFromSource(model.index(1, 2)).row() == 0
+    assert not proxy.mapFromSource(model.index(0, 2)).isValid()
+    assert proxy.data(proxy.index(0, 0), OBJECT_ROLE) is model.row_object(1)
+
+
+def test_sorting_does_not_render_a_cell_per_comparison(
+    qt_app: QCoreApplication,  # noqa: ARG001 - Qt needs the app alive
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    flows = [sdk_flow(bytes_total=(n * 7919) % 5000) for n in range(2000)]
+    table = FlowTableModel()
+    table.set_rows(flows)
+    proxy = FlowFilterProxy(table)
+    calls = 0
+    original = FlowTableModel.data
+
+    def counting(self: FlowTableModel, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401 - Qt variant
+        nonlocal calls
+        calls += 1
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(FlowTableModel, "data", counting)
+    column = [c.header for c in FLOW_COLUMNS].index("Bytes")
+
+    proxy.sort(column, Qt.SortOrder.AscendingOrder)
+    proxy.set_text("10.0.0.1")
+
+    assert calls == 0
+    sizes = [proxy.data(proxy.index(row, column), SORT_ROLE) for row in range(2000)]
+    assert sizes == sorted(flow.bytes_total for flow in flows)
+
+
+def test_the_proxy_passes_qts_model_consistency_checks(model: FlowTableModel) -> None:
+    qt_test = pytest.importorskip("PySide6.QtTest")
+    proxy = FlowFilterProxy(model)
+    tester = qt_test.QAbstractItemModelTester(
+        proxy, qt_test.QAbstractItemModelTester.FailureReportingMode.Fatal
+    )
+    column = [c.header for c in FLOW_COLUMNS].index("Bytes")
+
+    proxy.sort(column, Qt.SortOrder.DescendingOrder)
+    proxy.set_text("10.0.0.1")
+    proxy.set_protocol(17)
+    proxy.set_filter("", None)
+    model.set_rows([sdk_flow()])
+    proxy.sort(-1)
+
+    assert proxy.rowCount() == 1
+    del tester
 
 
 @pytest.mark.parametrize(

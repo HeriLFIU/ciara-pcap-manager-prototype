@@ -7,6 +7,7 @@ libraries (``libEGL`` on Linux); on a host without them the module is skipped
 with the reason shown, and ``docs/developer-guide.md`` says how to install them.
 """
 
+import asyncio
 import csv
 import json
 import re
@@ -41,7 +42,7 @@ from ciara_pcap_gui.theme import (
 from ciara_pcap_gui.widgets.drop_zone import capture_from_urls
 from ciara_pcap_gui.widgets.pill import PillDelegate
 from ciara_pcap_sdk.models import AnalysisJob, Flow
-from PySide6.QtCore import QCoreApplication, QRect, QSettings
+from PySide6.QtCore import QCoreApplication, QRect, QSettings, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPalette
 from PySide6.QtWidgets import (
     QLabel,
@@ -187,6 +188,42 @@ def test_the_flow_filters(window: MainWindow) -> None:
     assert window.flows.count.text() == "1 of 2 flows"
 
 
+def test_a_selected_flow_stays_selected_while_it_matches_the_filter(
+    window: MainWindow,
+) -> None:
+    flows = sdk_flows()
+    window.state.load(sdk_job(), flows)
+    window.flows.table.selectRow(1)  # the UDP flow
+
+    window.flows.search.setText("5353")
+
+    assert window.flows.selected_flow() is flows[1]
+    assert window.flows.detail.title.startswith(f"{flows[1].ip_a}:5353")
+
+
+def test_filtering_out_the_selected_flow_clears_the_detail_panel(
+    window: MainWindow,
+) -> None:
+    window.state.load(sdk_job(), sdk_flows())
+    window.flows.table.selectRow(1)  # the UDP flow
+
+    window.flows.protocol.setCurrentIndex(1)  # TCP
+
+    assert window.flows.selected_flow() is None
+    assert window.flows.detail.title == "No flow selected"
+
+
+def test_sorting_keeps_the_selected_flow(window: MainWindow) -> None:
+    flows = sdk_flows()
+    window.state.load(sdk_job(), flows)
+    window.flows.table.selectRow(0)
+    column = [c.header for c in window.flows.model.columns].index("Endpoint A")
+
+    window.flows.table.sortByColumn(column, Qt.SortOrder.DescendingOrder)
+
+    assert window.flows.selected_flow() is flows[0]
+
+
 def test_csv_export_writes_codebook_columns(window: MainWindow, tmp_path: Path) -> None:
     window.state.load(sdk_job(), sdk_flows())
     destination = tmp_path / "flows.csv"
@@ -278,6 +315,34 @@ async def test_history_lists_jobs_and_opens_one(
     assert opened == [JOB_ID]
     assert await window.open_job(JOB_ID) is True
     assert len(window.state.flows) == 2
+
+
+async def test_opening_the_history_page_lists_the_jobs(
+    window: MainWindow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub(monkeypatch, "list_jobs", [sdk_job(), sdk_job("failed")])
+
+    window.show_page(window.pages.index(window.history))
+    for _ in range(10):  # the refresh is a task; the stubs never wait on I/O
+        await asyncio.sleep(0)
+
+    assert window.history.model.rowCount() == 2
+
+
+async def test_the_window_polls_the_job_quickly(
+    window: MainWindow, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    seen: dict[str, object] = {}
+
+    async def fake(*_: object, **kwargs: object) -> tuple[AnalysisJob, list[Flow]]:
+        seen.update(kwargs)
+        return sdk_job(), sdk_flows()
+
+    monkeypatch.setattr(window_module, "analyze_capture", fake)
+
+    await window.analyze_path(tmp_path / "capture.pcap")
+
+    assert seen["poll_interval"] == pytest.approx(0.2)
 
 
 async def test_a_history_failure_is_shown_on_the_page(
